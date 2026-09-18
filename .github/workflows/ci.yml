@@ -24,8 +24,8 @@ jobs:
       - name: Install nats-server
         run: |
           name="nats-server-${NATS_SERVER_VERSION}-linux-amd64"
-          curl -sSL "https://github.com/nats-io/nats-server/releases/download/${NATS_SERVER_VERSION}/${name}.zip" -o nats-server.zip
-          unzip -q nats-server.zip
+          curl -fsSL "https://github.com/nats-io/nats-server/releases/download/${NATS_SERVER_VERSION}/${name}.tar.gz" -o nats-server.tar.gz
+          tar -xzf nats-server.tar.gz
           sudo install -m 0755 "${name}/nats-server" /usr/local/bin/nats-server
           nats-server --version
 
