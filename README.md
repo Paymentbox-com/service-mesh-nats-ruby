@@ -1,7 +1,10 @@
 # service-mesh-nats-ruby
 
-A Ruby implementation of the Service Mesh API Specification over NATS,
-packaged as the gem `service_mesh_nats`.
+A Ruby implementation of the
+[Service Mesh API Specification](https://github.com/Paymentbox-com/service-mesh-api)
+over NATS, packaged as the gem `service_mesh_nats`. The specification is the
+authority for everything this gem does; the Go implementation is
+[service-mesh-nats-go](https://github.com/Paymentbox-com/service-mesh-nats-go).
 
 ## Install
 
@@ -45,6 +48,85 @@ client.publish(ServiceMeshNats::Message.new(target: created, payload: "order 42"
 
 A process that only calls builds `ServiceMeshNats::Client.new(config)` and
 calls `close` when done.
+
+## Examples
+
+Each snippet below runs as written against a local `nats-server`. The
+`echo`, `created`, and `map` values are the ones declared under Usage.
+
+### A server process
+
+Serves one endpoint and one subscriber until SIGINT or SIGTERM, then drains
+for up to ten seconds.
+
+```ruby
+runtime = ServiceMeshNats::Runtime.new(
+  {"url" => ENV.fetch("NATS_URL", "nats://127.0.0.1:4222"), "deployment_group" => "demo"}, map,
+  endpoints: [ServiceMeshNats::Endpoint.new(target: echo, handler: ->(m) {
+    ServiceMeshNats::Message.new(target: echo, payload: m.payload)
+  })],
+  subscribers: [ServiceMeshNats::Subscriber.new(target: created, handler: ->(m) {
+    puts "created: #{m.payload}"
+  })]
+)
+runtime.start
+
+stop = Queue.new
+%w[INT TERM].each { |sig| Signal.trap(sig) { stop << sig } }
+stop.pop
+
+runtime.stop(10) or warn "some handlers were abandoned" # drain up to 10 seconds
+```
+
+### A call-only client process
+
+Makes one request with metadata and a per-call timeout, rescues each
+outcome, then publishes an event.
+
+```ruby
+client = ServiceMeshNats::Client.new("url" => ENV.fetch("NATS_URL", "nats://127.0.0.1:4222"))
+
+begin
+  reply = client.request(
+    ServiceMeshNats::Message.new(target: echo, metadata: {"Request-Id" => "1"}, payload: "hello"),
+    {"request_timeout" => "2"}
+  )
+  puts "#{reply.payload} #{reply.metadata}"
+rescue ServiceMeshNats::KindMismatch      # a topic target given to request
+rescue NATS::IO::NoRespondersError        # nothing serves demo.echo
+rescue NATS::Timeout                      # no reply within request_timeout
+rescue ServiceMeshNats::HandlerError => e # the handler raised: e.text
+end
+
+client.publish(ServiceMeshNats::Message.new(target: created, payload: "order 42"))
+client.close
+```
+
+### Consumer groups
+
+Two deployments on one topic each handle every event once. A subscriber
+with `consumer_group` set to `none` handles every event on every instance.
+
+```ruby
+on_created = ->(m) { puts "created: #{m.payload}" }
+sub = ServiceMeshNats::Subscriber.new(target: created, handler: on_created)
+
+# billing and audit each run this subscriber under their own deployment_group,
+# so every event is handled once per deployment.
+billing = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "billing"}, map, subscribers: [sub])
+audit   = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "audit"}, map, subscribers: [sub])
+
+# Every instance of a deployment handles every event: no group at all.
+broadcast = ServiceMeshNats::Subscriber.new(
+  target: created,
+  metadata: {ServiceMeshNats::CONSUMER_GROUP_KEY => ServiceMeshNats::CONSUMER_GROUP_NONE},
+  handler: on_created
+)
+cache = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "cache"}, map, subscribers: [broadcast])
+
+[billing, audit, cache].each(&:start)
+# One publish to created now produces three "created" lines: billing, audit, cache.
+```
 
 ## Public API
 
