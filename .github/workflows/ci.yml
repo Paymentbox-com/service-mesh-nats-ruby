@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# Least privilege: the token is read-only. No job here writes to the repo.
+permissions:
+  contents: read
+
+env:
+  NATS_SERVER_VERSION: v2.14.6
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install toolchain from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+
+      - name: Install nats-server
+        run: |
+          name="nats-server-${NATS_SERVER_VERSION}-linux-amd64"
+          curl -sSL "https://github.com/nats-io/nats-server/releases/download/${NATS_SERVER_VERSION}/${name}.zip" -o nats-server.zip
+          unzip -q nats-server.zip
+          sudo install -m 0755 "${name}/nats-server" /usr/local/bin/nats-server
+          nats-server --version
+
+      - name: Install gems
+        run: bundle install
+
+      - name: Lint
+        run: bundle exec rubocop
+
+      - name: Test
+        run: bundle exec rspec
+
+      - name: Build gem
+        run: gem build service_mesh_nats.gemspec
