@@ -2,7 +2,7 @@
 
 RSpec.describe ServiceMeshNats::Subject do
   def target(*segments)
-    ServiceMeshNats::Target.new(segments: segments, kind: :route)
+    ServiceMesh::Target.new(segments: segments, kind: :route)
   end
 
   describe ".format" do
@@ -26,7 +26,7 @@ RSpec.describe ServiceMeshNats::Subject do
       "non-printable" => ["a\x01"]
     }.each do |name, segments|
       it "rejects #{name}" do
-        expect { described_class.format(target(*segments)) }.to raise_error(ServiceMeshNats::InvalidTarget)
+        expect { described_class.format(target(*segments)) }.to raise_error(ServiceMesh::InvalidTarget)
       end
     end
   end

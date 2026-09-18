@@ -1,18 +1,10 @@
 # frozen_string_literal: true
 
 module ServiceMeshNats
+  # This transport's errors. The contract errors are ServiceMesh::KindMismatch,
+  # ServiceMesh::InvalidTarget, and ServiceMesh::NoDeploymentGroup.
   class Error < StandardError; end
 
-  # Contract errors, raised for misuse of the specification.
-  class KindMismatch < Error; end
-
-  class InvalidTarget < Error; end
-
-  class NoDeploymentGroup < Error
-    def initialize(msg = "config #{DEPLOYMENT_GROUP_KEY} is required") = super
-  end
-
-  # Runtime-specific errors.
   class BadConfig < Error; end
 
   class NotRunning < Error

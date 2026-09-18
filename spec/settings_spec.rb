@@ -22,8 +22,8 @@ RSpec.describe ServiceMeshNats::Settings do
   end
 
   it "requires the deployment group for a runtime" do
-    expect { described_class.parse({}, require_deployment_group: true) }.to raise_error(ServiceMeshNats::NoDeploymentGroup)
-    expect { described_class.parse({"deployment_group" => ""}, require_deployment_group: true) }.to raise_error(ServiceMeshNats::NoDeploymentGroup)
+    expect { described_class.parse({}, require_deployment_group: true) }.to raise_error(ServiceMesh::NoDeploymentGroup)
+    expect { described_class.parse({"deployment_group" => ""}, require_deployment_group: true) }.to raise_error(ServiceMesh::NoDeploymentGroup)
   end
 
   it "does not require the deployment group for a client" do

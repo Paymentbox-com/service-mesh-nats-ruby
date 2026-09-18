@@ -3,7 +3,7 @@
 require "etc"
 
 module ServiceMeshNats
-  # Configuration keys this runtime reads beyond DEPLOYMENT_GROUP_KEY. Every
+  # Configuration keys this runtime reads beyond ServiceMesh::DEPLOYMENT_GROUP_KEY. Every
   # value is a string. Durations are seconds, such as "5" or "0.25".
   URL_KEY = "url"
   NAME_KEY = "name"
@@ -21,8 +21,8 @@ module ServiceMeshNats
     # standalone Client, which ignores the key.
     def self.parse(config, require_deployment_group:)
       config = config.to_h
-      deployment_group = config[DEPLOYMENT_GROUP_KEY].to_s
-      raise NoDeploymentGroup if require_deployment_group && deployment_group.empty?
+      deployment_group = config[ServiceMesh::DEPLOYMENT_GROUP_KEY].to_s
+      raise ServiceMesh::NoDeploymentGroup if require_deployment_group && deployment_group.empty?
 
       new(
         url: config.fetch(URL_KEY, DEFAULT_URL).then { |v| v.to_s.empty? ? DEFAULT_URL : v },

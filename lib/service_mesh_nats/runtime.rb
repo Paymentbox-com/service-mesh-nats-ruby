@@ -15,8 +15,8 @@ module ServiceMeshNats
 
     attr_reader :service_map, :client
 
-    # Raises NoDeploymentGroup, BadConfig, KindMismatch, InvalidTarget, or
-    # DuplicateTarget.
+    # Raises ServiceMesh::NoDeploymentGroup, BadConfig, ServiceMesh::KindMismatch,
+    # ServiceMesh::InvalidTarget, or DuplicateTarget.
     def initialize(config, service_map, endpoints: [], subscribers: [], logger: Logger.new($stderr))
       @settings = Settings.parse(config, require_deployment_group: true)
       @service_map = service_map
@@ -126,12 +126,12 @@ module ServiceMeshNats
     end
 
     def serve(nc, binding, msg)
-      inbound = Message.new(target: binding.target, metadata: msg.header || {}, payload: msg.data.to_s)
+      inbound = ServiceMesh::Message.new(target: binding.target, metadata: msg.header || {}, payload: msg.data.to_s)
 
       out = binding.handler.call(inbound)
       return unless binding.replies && msg.reply
 
-      out = Message.new(target: binding.target) unless out.is_a?(Message)
+      out = ServiceMesh::Message.new(target: binding.target) unless out.is_a?(ServiceMesh::Message)
       reply(nc, msg.reply, out.metadata, out.payload)
     rescue => e
       @logger.error("service_mesh_nats: handler failed on #{binding.subject}: #{e.class}: #{e.message}")

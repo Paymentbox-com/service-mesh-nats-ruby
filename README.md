@@ -1,9 +1,12 @@
 # service-mesh-nats-ruby
 
-A Ruby implementation of the
+The NATS transport for the
 [Service Mesh API Specification](https://github.com/Paymentbox-com/service-mesh-api)
-over NATS, packaged as the gem `service_mesh_nats`. The specification is the
-authority for everything this gem does; the Go implementation is
+in Ruby, packaged as the gem `service_mesh_nats`. The specification is the
+authority for everything this gem does. The contract types and errors come
+from [service-mesh-ruby](https://github.com/Paymentbox-com/service-mesh-ruby),
+gem `service_mesh`, and this gem passes its conformance suite. The Go
+counterpart is
 [service-mesh-nats-go](https://github.com/Paymentbox-com/service-mesh-nats-go).
 
 ## Install
@@ -13,16 +16,17 @@ authority for everything this gem does; the Go implementation is
 gem "service_mesh_nats"
 ```
 
-Requires Ruby 3.3 or newer and a reachable NATS server.
+Requires Ruby 3.3 or newer and a reachable NATS server. Depends on
+`service_mesh` and `nats-pure`.
 
 ## Usage
 
 ```ruby
 require "service_mesh_nats"
 
-echo    = ServiceMeshNats::Target.new(segments: %w[demo echo], kind: :route)
-created = ServiceMeshNats::Target.new(segments: %w[demo created], kind: :topic)
-map     = ServiceMeshNats::ServiceMap.new(targets: [echo, created])
+echo    = ServiceMesh::Target.new(segments: %w[demo echo], kind: :route)
+created = ServiceMesh::Target.new(segments: %w[demo created], kind: :topic)
+map     = ServiceMesh::ServiceMap.new(targets: [echo, created])
 
 config = {
   "url" => "nats://127.0.0.1:4222",
@@ -31,10 +35,10 @@ config = {
 
 runtime = ServiceMeshNats::Runtime.new(config, map,
   endpoints: [
-    ServiceMeshNats::Endpoint.new(target: echo, handler: ->(m) { ServiceMeshNats::Message.new(target: echo, payload: m.payload) })
+    ServiceMesh::Endpoint.new(target: echo, handler: ->(m) { ServiceMesh::Message.new(target: echo, payload: m.payload) })
   ],
   subscribers: [
-    ServiceMeshNats::Subscriber.new(target: created, handler: ->(m) { puts "created: #{m.payload}" })
+    ServiceMesh::Subscriber.new(target: created, handler: ->(m) { puts "created: #{m.payload}" })
   ])
 # Raises NoDeploymentGroup, BadConfig, KindMismatch, InvalidTarget, or DuplicateTarget.
 
@@ -42,8 +46,8 @@ runtime.start
 at_exit { runtime.stop(10) }
 
 client = runtime.client
-reply = client.request(ServiceMeshNats::Message.new(target: echo, payload: "hi"))
-client.publish(ServiceMeshNats::Message.new(target: created, payload: "order 42"))
+reply = client.request(ServiceMesh::Message.new(target: echo, payload: "hi"))
+client.publish(ServiceMesh::Message.new(target: created, payload: "order 42"))
 ```
 
 A process that only calls builds `ServiceMeshNats::Client.new(config)` and
@@ -62,10 +66,10 @@ for up to ten seconds.
 ```ruby
 runtime = ServiceMeshNats::Runtime.new(
   {"url" => ENV.fetch("NATS_URL", "nats://127.0.0.1:4222"), "deployment_group" => "demo"}, map,
-  endpoints: [ServiceMeshNats::Endpoint.new(target: echo, handler: ->(m) {
-    ServiceMeshNats::Message.new(target: echo, payload: m.payload)
+  endpoints: [ServiceMesh::Endpoint.new(target: echo, handler: ->(m) {
+    ServiceMesh::Message.new(target: echo, payload: m.payload)
   })],
-  subscribers: [ServiceMeshNats::Subscriber.new(target: created, handler: ->(m) {
+  subscribers: [ServiceMesh::Subscriber.new(target: created, handler: ->(m) {
     puts "created: #{m.payload}"
   })]
 )
@@ -88,17 +92,17 @@ client = ServiceMeshNats::Client.new("url" => ENV.fetch("NATS_URL", "nats://127.
 
 begin
   reply = client.request(
-    ServiceMeshNats::Message.new(target: echo, metadata: {"Request-Id" => "1"}, payload: "hello"),
+    ServiceMesh::Message.new(target: echo, metadata: {"Request-Id" => "1"}, payload: "hello"),
     {"request_timeout" => "2"}
   )
   puts "#{reply.payload} #{reply.metadata}"
-rescue ServiceMeshNats::KindMismatch      # a topic target given to request
+rescue ServiceMesh::KindMismatch          # a topic target given to request
 rescue NATS::IO::NoRespondersError        # nothing serves demo.echo
 rescue NATS::Timeout                      # no reply within request_timeout
 rescue ServiceMeshNats::HandlerError => e # the handler raised: e.text
 end
 
-client.publish(ServiceMeshNats::Message.new(target: created, payload: "order 42"))
+client.publish(ServiceMesh::Message.new(target: created, payload: "order 42"))
 client.close
 ```
 
@@ -109,7 +113,7 @@ with `consumer_group` set to `none` handles every event on every instance.
 
 ```ruby
 on_created = ->(m) { puts "created: #{m.payload}" }
-sub = ServiceMeshNats::Subscriber.new(target: created, handler: on_created)
+sub = ServiceMesh::Subscriber.new(target: created, handler: on_created)
 
 # billing and audit each run this subscriber under their own deployment_group,
 # so every event is handled once per deployment.
@@ -117,9 +121,9 @@ billing = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "bil
 audit   = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "audit"}, map, subscribers: [sub])
 
 # Every instance of a deployment handles every event: no group at all.
-broadcast = ServiceMeshNats::Subscriber.new(
+broadcast = ServiceMesh::Subscriber.new(
   target: created,
-  metadata: {ServiceMeshNats::CONSUMER_GROUP_KEY => ServiceMeshNats::CONSUMER_GROUP_NONE},
+  metadata: {ServiceMesh::CONSUMER_GROUP_KEY => ServiceMesh::CONSUMER_GROUP_NONE},
   handler: on_created
 )
 cache = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "cache"}, map, subscribers: [broadcast])
@@ -132,11 +136,11 @@ cache = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "cache
 
 | constant                        | role                                                         |
 |---------------------------------|--------------------------------------------------------------|
-| `Target`, `ServiceMap`, `Message`, `Endpoint`, `Subscriber` | `Data` values from the specification. `Message#payload` is always `Encoding::BINARY`. |
-| `Client.new(config)`            | `#request(message, opts = {})`, `#publish(message, opts = {})`, `#close` |
-| `Runtime.new(config, service_map, endpoints:, subscribers:, logger:)` | `#client`, `#start`, `#stop(drain_seconds)`, `#running?`, `#service_map` |
-| `KindMismatch`, `InvalidTarget`, `NoDeploymentGroup` | the specification's errors |
-| `BadConfig`, `NotRunning`, `AlreadyStarted`, `Stopped`, `DuplicateTarget`, `HandlerError` | this runtime's errors |
+| `ServiceMesh::Target`, `ServiceMap`, `Message`, `Endpoint`, `Subscriber` | `Data` values from the `service_mesh` gem. `Message#payload` is always `Encoding::BINARY`. |
+| `ServiceMeshNats::Client.new(config)` | `#request(message, opts = {})`, `#publish(message, opts = {})`, `#close` |
+| `ServiceMeshNats::Runtime.new(config, service_map, endpoints:, subscribers:, logger:)` | `#client`, `#start`, `#stop(drain_seconds)`, `#running?`, `#service_map` |
+| `ServiceMesh::KindMismatch`, `InvalidTarget`, `NoDeploymentGroup` | the specification's errors, from `service_mesh` |
+| `ServiceMeshNats::BadConfig`, `NotRunning`, `AlreadyStarted`, `Stopped`, `DuplicateTarget`, `HandlerError` | this transport's errors |
 
 `Runtime#stop` returns `true` when every in-flight handler finished within
 the drain and `false` when some were abandoned.
@@ -215,3 +219,5 @@ just test
 
 Integration specs start a real `nats-server` on a random loopback port per
 example group. The binary is found on `PATH` or at `NATS_SERVER_BIN`.
+`spec/conformance_spec.rb` runs the `service_mesh` gem's shared examples
+against this transport; the other specs cover what is NATS-specific.

@@ -6,7 +6,7 @@ module ServiceMeshNats
   # Sends messages over a NATS connection.
   class Client
     # Connects and returns a client that owns its connection.
-    # DEPLOYMENT_GROUP_KEY is ignored.
+    # ServiceMesh::DEPLOYMENT_GROUP_KEY is ignored.
     def initialize(config = {})
       @settings = Settings.parse(config, require_deployment_group: false)
       @subjects = {}
@@ -43,7 +43,7 @@ module ServiceMeshNats
       header = reply.header || {}
       raise HandlerError.new(header[HANDLER_ERROR_HEADER].to_s) if header.key?(HANDLER_ERROR_HEADER)
 
-      Message.new(target: message.target, metadata: header, payload: reply.data.to_s)
+      ServiceMesh::Message.new(target: message.target, metadata: header, payload: reply.data.to_s)
     end
 
     # Sends +message+ to a topic target. +opts+ is accepted for the interface
