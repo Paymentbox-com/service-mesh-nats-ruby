@@ -21,7 +21,7 @@ module ServiceMeshNats
       @settings = Settings.parse(config, require_deployment_group: true)
       @service_map = service_map
       @logger = logger
-      @client = Client.shared(@settings)
+      @client = Client.shared(@settings, service_map)
       @bindings = bind_all(endpoints, subscribers)
 
       @lock = Mutex.new

@@ -8,7 +8,7 @@ RSpec.describe "service_mesh_nats conformance", :nats do
         ServiceMeshNats::Runtime.new(config, map, endpoints: endpoints, subscribers: subscribers, logger: quiet)
       end
     end
-    let(:new_client) { ->(config) { ServiceMeshNats::Client.new(config) } }
+    let(:new_client) { ->(config, map) { ServiceMeshNats::Client.new(config, map) } }
     let(:runtime_config) { {"url" => nats_server_url, "deployment_group" => "test"} }
     let(:client_config) { {"url" => nats_server_url} }
     let(:route_target) { ServiceMesh::Target.new(segments: %w[test echo], kind: :route) }

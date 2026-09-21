@@ -5,7 +5,7 @@ RSpec.describe ServiceMeshNats::Runtime, :nats do
   let(:echo) { ServiceMesh::Target.new(segments: %w[test echo], kind: :route) }
   let(:map) { ServiceMesh::ServiceMap.new }
   let(:quiet) { Logger.new(File::NULL) }
-  let(:client) { ServiceMeshNats::Client.new("url" => url) }
+  let(:client) { ServiceMeshNats::Client.new({"url" => url}, map) }
 
   after { client.close }
 

@@ -4,7 +4,7 @@ RSpec.describe ServiceMeshNats::Client do
   let(:echo) { ServiceMesh::Target.new(segments: %w[test echo], kind: :route) }
 
   describe "checks before any connection" do
-    let(:client) { described_class.shared(ServiceMeshNats::Settings.parse({}, require_deployment_group: false)) }
+    let(:client) { described_class.shared(ServiceMeshNats::Settings.parse({}, require_deployment_group: false), ServiceMesh::ServiceMap.new) }
 
     it "rejects a kind mismatch without a connection" do
       topic = ServiceMesh::Target.new(segments: %w[test event], kind: :topic)
@@ -31,7 +31,7 @@ RSpec.describe ServiceMeshNats::Client do
     let(:config) { {"url" => url} }
     let(:runtime_config) { config.merge("deployment_group" => "test") }
     let(:quiet) { Logger.new(File::NULL) }
-    let(:client) { described_class.new(config) }
+    let(:client) { described_class.new(config, map) }
     let(:map) { ServiceMesh::ServiceMap.new }
 
     after { client.close }
@@ -44,6 +44,14 @@ RSpec.describe ServiceMeshNats::Client do
     end
 
     after { (@runtimes || []).each { |rt| rt.stop(3) } }
+
+    it "keeps the service map" do
+      sm = ServiceMesh::ServiceMap.new(targets: [echo])
+      standalone = described_class.new(config, sm)
+      expect(standalone.service_map).to equal(sm)
+    ensure
+      standalone&.close
+    end
 
     it "raises the transport's no-responders error when nothing serves the target" do
       expect { client.request(ServiceMesh::Message.new(target: echo)) }.to raise_error(NATS::IO::NoRespondersError)
@@ -60,7 +68,7 @@ RSpec.describe ServiceMeshNats::Client do
         sleep 3
         m
       })])
-      slow_client = described_class.new(config.merge("request_timeout" => "0.1"))
+      slow_client = described_class.new(config.merge("request_timeout" => "0.1"), map)
 
       expect { slow_client.request(ServiceMesh::Message.new(target: echo)) }.to raise_error(NATS::Timeout)
 

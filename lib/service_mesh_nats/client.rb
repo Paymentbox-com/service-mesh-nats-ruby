@@ -5,10 +5,16 @@ require "nats/io/client"
 module ServiceMeshNats
   # Sends messages over a NATS connection.
   class Client
-    # Connects and returns a client that owns its connection.
-    # ServiceMesh::DEPLOYMENT_GROUP_KEY is ignored.
-    def initialize(config = {})
+    # The map this client was built with: the one given to +new+, or the
+    # runtime's for a client from Runtime#client. The client does not
+    # otherwise use it.
+    attr_reader :service_map
+
+    # Connects and returns a client that owns its connection and holds
+    # +service_map+. ServiceMesh::DEPLOYMENT_GROUP_KEY is ignored.
+    def initialize(config, service_map)
       @settings = Settings.parse(config, require_deployment_group: false)
+      @service_map = service_map
       @subjects = {}
       @subjects_lock = Mutex.new
       @owns_connection = true
@@ -18,9 +24,10 @@ module ServiceMeshNats
 
     # A client whose connection a Runtime attaches and detaches. Its close is
     # a no-op.
-    def self.shared(settings)
+    def self.shared(settings, service_map)
       client = allocate
       client.instance_variable_set(:@settings, settings)
+      client.instance_variable_set(:@service_map, service_map)
       client.instance_variable_set(:@subjects, {})
       client.instance_variable_set(:@subjects_lock, Mutex.new)
       client.instance_variable_set(:@owns_connection, false)

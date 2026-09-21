@@ -50,8 +50,11 @@ reply = client.request(ServiceMesh::Message.new(target: echo, payload: "hi"))
 client.publish(ServiceMesh::Message.new(target: created, payload: "order 42"))
 ```
 
-A process that only calls builds `ServiceMeshNats::Client.new(config)` and
-calls `close` when done.
+A process that only calls builds `ServiceMeshNats::Client.new(config, map)`
+and calls `close` when done. `runtime.service_map`,
+`runtime.client.service_map`, and a standalone client's `service_map` return
+the map each was built with; the transport does not validate targets against
+it.
 
 ## Examples
 
@@ -88,7 +91,7 @@ Makes one request with metadata and a per-call timeout, rescues each
 outcome, then publishes an event.
 
 ```ruby
-client = ServiceMeshNats::Client.new("url" => ENV.fetch("NATS_URL", "nats://127.0.0.1:4222"))
+client = ServiceMeshNats::Client.new({"url" => ENV.fetch("NATS_URL", "nats://127.0.0.1:4222")}, map)
 
 begin
   reply = client.request(
@@ -137,7 +140,7 @@ cache = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "cache
 | constant                        | role                                                         |
 |---------------------------------|--------------------------------------------------------------|
 | `ServiceMesh::Target`, `ServiceMap`, `Message`, `Endpoint`, `Subscriber` | `Data` values from the `service_mesh` gem. `Message#payload` is always `Encoding::BINARY`. |
-| `ServiceMeshNats::Client.new(config)` | `#request(message, opts = {})`, `#publish(message, opts = {})`, `#close` |
+| `ServiceMeshNats::Client.new(config, service_map)` | `#request(message, opts = {})`, `#publish(message, opts = {})`, `#close`, `#service_map` |
 | `ServiceMeshNats::Runtime.new(config, service_map, endpoints:, subscribers:, logger:)` | `#client`, `#start`, `#stop(drain_seconds)`, `#running?`, `#service_map` |
 | `ServiceMesh::KindMismatch`, `InvalidTarget`, `NoDeploymentGroup` | the specification's errors, from `service_mesh` |
 | `ServiceMeshNats::BadConfig`, `NotRunning`, `AlreadyStarted`, `Stopped`, `DuplicateTarget`, `HandlerError` | this transport's errors |
