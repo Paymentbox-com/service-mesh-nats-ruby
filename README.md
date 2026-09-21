@@ -8,6 +8,10 @@ from [service-mesh-ruby](https://github.com/Paymentbox-com/service-mesh-ruby),
 gem `service_mesh`, and this gem passes its conformance suite. The Go
 counterpart is
 [service-mesh-nats-go](https://github.com/Paymentbox-com/service-mesh-nats-go).
+The [gRPC Service Mesh API](https://github.com/Paymentbox-com/grpc-service-mesh-api)
+is the protocol layer that generates code served over this transport from
+protobuf definitions, through its Ruby library
+[grpc-service-mesh-ruby](https://github.com/Paymentbox-com/grpc-service-mesh-ruby).
 
 ## Install
 
