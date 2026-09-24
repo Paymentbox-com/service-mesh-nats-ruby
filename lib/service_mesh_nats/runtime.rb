@@ -13,17 +13,18 @@ module ServiceMeshNats
 
     FLUSH_BUDGET = 5.0
 
-    attr_reader :service_map, :client
+    # The client this runtime was built from, in every state.
+    attr_reader :client
 
-    # Raises ServiceMesh::NoDeploymentGroup, BadConfig, ServiceMesh::KindMismatch,
-    # or ServiceMesh::InvalidTarget. Two bindings on one subject become two
-    # subscriptions. The client is built unconnected; start connects it and
-    # stop closes it.
-    def initialize(config, service_map, endpoints: [], subscribers: [], logger: Logger.new($stderr))
-      @settings = Settings.parse(config, require_deployment_group: true)
-      @service_map = service_map
+    # Reads ServiceMesh::DEPLOYMENT_GROUP_KEY and CONCURRENCY_KEY from +config+;
+    # connection keys are ignored, the client carries them. Raises
+    # ServiceMesh::NoDeploymentGroup, BadConfig, ServiceMesh::KindMismatch, or
+    # ServiceMesh::InvalidTarget. Two bindings on one subject become two
+    # subscriptions. The connection is not touched until start.
+    def initialize(client, config, endpoints: [], subscribers: [], logger: Logger.new($stderr))
+      @settings = RuntimeSettings.parse(config)
+      @client = client
       @logger = logger
-      @client = Client.new(config, service_map, logger: logger, connect: false)
       @bindings = bind_all(endpoints, subscribers)
 
       @lock = Mutex.new
@@ -36,17 +37,21 @@ module ServiceMeshNats
       @state == :running
     end
 
-    # Connects the client, subscribes every binding, and begins receiving.
-    # Raises AlreadyStarted on a running runtime and Stopped after stop. A
-    # connection failure passes through and leaves the runtime startable. A
-    # failure while subscribing closes the client, marks the runtime stopped,
-    # and passes through.
+    # The client's service map.
+    def service_map
+      @client.service_map
+    end
+
+    # Subscribes every binding on the client's connection and begins
+    # receiving. Raises AlreadyStarted on a running runtime, Stopped after
+    # stop, and Closed when the client has been closed. A failure while
+    # subscribing closes the client, marks the runtime stopped, and passes
+    # through.
     def start
       @lock.synchronize do
         raise AlreadyStarted if @state == :running
         raise Stopped if @state == :stopped
 
-        @client.connect
         nc = @client.connection
 
         pool = Concurrent::FixedThreadPool.new(@settings.concurrency, name: "service_mesh_nats")
@@ -57,7 +62,7 @@ module ServiceMeshNats
             subs << nc.subscribe(b.subject, opts) { |msg| dispatch(pool, nc, b, msg) }
           end
           # Ensure the server has every subscription before start returns.
-          nc.flush(@settings.connect_timeout)
+          nc.flush(FLUSH_BUDGET)
         rescue => e
           subs.each { |s| s.unsubscribe rescue nil } # rubocop:disable Style/RescueModifier
           pool.kill
@@ -76,8 +81,9 @@ module ServiceMeshNats
     # Stops receiving, waits up to +drain+ seconds for in-flight handlers,
     # flushes, then closes the client. Returns true when every handler
     # finished, false when some were abandoned. A runtime that is not running
-    # returns true. A client the caller closed directly is treated as gone:
-    # nothing is flushed and the drain result is still returned.
+    # returns true and leaves the client as it is. A client the caller closed
+    # directly is treated as gone: nothing is flushed and the drain result is
+    # still returned.
     def stop(drain)
       drain = Float(drain)
       raise ArgumentError, "drain must be non-negative" if drain.negative?

@@ -3,35 +3,11 @@
 RSpec.describe ServiceMeshNats::Client do
   let(:echo) { ServiceMesh::Target.new(segments: %w[test echo], kind: :route) }
   let(:event) { ServiceMesh::Target.new(segments: %w[test event], kind: :topic) }
+  let(:map) { ServiceMesh::ServiceMap.new }
 
-  describe "before any connection" do
-    let(:client) { described_class.new({}, ServiceMesh::ServiceMap.new, connect: false) }
-
-    it "rejects a kind mismatch without a connection" do
-      expect { client.request(ServiceMesh::Message.new(target: event)) }.to raise_error(ServiceMesh::KindMismatch)
-    end
-
-    it "rejects a target the transport cannot carry" do
-      bad = ServiceMesh::Target.new(segments: ["a b"], kind: :route)
-      expect { client.request(ServiceMesh::Message.new(target: bad)) }.to raise_error(ServiceMesh::InvalidTarget)
-    end
-
-    it "rejects a bad per-call timeout" do
-      expect { client.request(ServiceMesh::Message.new(target: echo), "request_timeout" => "later") }
-        .to raise_error(ServiceMeshNats::BadConfig)
-    end
-
-    it "raises NotConnected on request" do
-      expect { client.request(ServiceMesh::Message.new(target: echo)) }.to raise_error(ServiceMeshNats::NotConnected)
-    end
-
-    it "raises NotConnected on publish" do
-      expect { client.publish(ServiceMesh::Message.new(target: event)) }.to raise_error(ServiceMeshNats::NotConnected)
-    end
-
-    it "raises NotConnected on connection" do
-      expect { client.connection }.to raise_error(ServiceMeshNats::NotConnected)
-    end
+  it "surfaces a connect failure from new" do
+    expect { described_class.new({"url" => "nats://127.0.0.1:1", "connect_timeout" => "0.2"}, map) }
+      .to raise_error(Errno::ECONNREFUSED)
   end
 
   describe "against a server", :nats do
@@ -40,12 +16,11 @@ RSpec.describe ServiceMeshNats::Client do
     let(:runtime_config) { config.merge("deployment_group" => "test") }
     let(:quiet) { Logger.new(File::NULL) }
     let(:client) { described_class.new(config, map) }
-    let(:map) { ServiceMesh::ServiceMap.new }
 
     after { client.close }
 
     def serve(endpoints)
-      rt = ServiceMeshNats::Runtime.new(runtime_config, map, endpoints: endpoints, logger: quiet)
+      rt = ServiceMeshNats::Runtime.new(described_class.new(config, map), runtime_config, endpoints: endpoints, logger: quiet)
       rt.start
       @runtimes = (@runtimes || []) << rt
       rt
@@ -61,24 +36,35 @@ RSpec.describe ServiceMeshNats::Client do
       standalone&.close
     end
 
-    it "connects a connect: false client on connect" do
-      serve([ServiceMesh::Endpoint.new(target: echo, handler: ->(m) { m })])
-      later = described_class.new(config, map, connect: false)
-      later.connect
-      expect(later.request(ServiceMesh::Message.new(target: echo, payload: "hi")).payload).to eq("hi")
+    it "ignores the deployment group" do
+      with_group = described_class.new(runtime_config, map)
+      expect(with_group.connection).to be_a(NATS::IO::Client)
     ensure
-      later&.close
+      with_group&.close
     end
 
-    it "connects once" do
-      nc = client.connection
-      client.connect
-      expect(client.connection).to equal(nc)
+    it "rejects a kind mismatch" do
+      expect { client.request(ServiceMesh::Message.new(target: event)) }.to raise_error(ServiceMesh::KindMismatch)
+    end
+
+    it "rejects a target the transport cannot carry" do
+      bad = ServiceMesh::Target.new(segments: ["a b"], kind: :route)
+      expect { client.request(ServiceMesh::Message.new(target: bad)) }.to raise_error(ServiceMesh::InvalidTarget)
+    end
+
+    it "rejects a bad per-call timeout" do
+      expect { client.request(ServiceMesh::Message.new(target: echo), "request_timeout" => "later") }
+        .to raise_error(ServiceMeshNats::BadConfig)
     end
 
     it "raises Closed on request after close" do
       client.close
       expect { client.request(ServiceMesh::Message.new(target: echo)) }.to raise_error(ServiceMeshNats::Closed)
+    end
+
+    it "raises Closed on publish after close" do
+      client.close
+      expect { client.publish(ServiceMesh::Message.new(target: event)) }.to raise_error(ServiceMeshNats::Closed)
     end
 
     it "raises Closed on connection after close" do
@@ -89,17 +75,6 @@ RSpec.describe ServiceMeshNats::Client do
     it "closes twice without effect" do
       client.close
       expect(client.close).to be_nil
-    end
-
-    it "raises Closed on connect after close" do
-      client.close
-      expect { client.connect }.to raise_error(ServiceMeshNats::Closed)
-    end
-
-    it "surfaces a connect failure and stays connectable" do
-      refused = described_class.new({"url" => "nats://127.0.0.1:1", "connect_timeout" => "0.2"}, map, connect: false)
-      expect { refused.connect }.to raise_error(Errno::ECONNREFUSED)
-      expect { refused.connection }.to raise_error(ServiceMeshNats::NotConnected)
     end
 
     it "raises the transport's no-responders error when nothing serves the target" do

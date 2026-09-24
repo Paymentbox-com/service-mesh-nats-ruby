@@ -10,31 +10,39 @@ RSpec.describe ServiceMeshNats::Runtime, :nats do
 
   after { client.close }
 
-  def echo_runtime(extra = {})
-    described_class.new(config.merge(extra), map,
+  def new_client
+    ServiceMeshNats::Client.new({"url" => url}, map)
+  end
+
+  def echo_runtime(given = new_client, extra = {})
+    described_class.new(given, config.merge(extra),
       endpoints: [ServiceMesh::Endpoint.new(target: echo, handler: ->(m) { m })], logger: quiet)
   end
 
-  it "surfaces a connect failure and stays not running" do
-    rt = described_class.new({"url" => "nats://127.0.0.1:1", "connect_timeout" => "0.2", "deployment_group" => "t"}, map, logger: quiet)
-    expect { rt.start }.to raise_error(Errno::ECONNREFUSED)
+  it "exposes the given client in every state" do
+    given = new_client
+    rt = echo_runtime(given)
+    expect(rt.client).to equal(given)
+    rt.start
+    expect(rt.client).to equal(given)
+    rt.stop(3)
+    expect(rt.client).to equal(given)
+  end
+
+  it "raises Closed from start when the client is closed" do
+    given = new_client
+    given.close
+    rt = echo_runtime(given)
+    expect { rt.start }.to raise_error(ServiceMeshNats::Closed)
     expect(rt.running?).to be(false)
   end
 
-  it "keeps one client across start" do
-    rt = echo_runtime
-    before = rt.client
-    rt.start
-    expect(rt.client).to equal(before)
-  ensure
-    rt&.stop(3)
-  end
-
-  it "closes its client on stop" do
-    rt = echo_runtime
+  it "closes the given client on stop" do
+    given = new_client
+    rt = echo_runtime(given)
     rt.start
     rt.stop(3)
-    expect { rt.client.request(ServiceMesh::Message.new(target: echo)) }.to raise_error(ServiceMeshNats::Closed)
+    expect { given.request(ServiceMesh::Message.new(target: echo)) }.to raise_error(ServiceMeshNats::Closed)
   end
 
   it "stops after its client was closed directly" do
@@ -47,7 +55,7 @@ RSpec.describe ServiceMeshNats::Runtime, :nats do
 
   it "reports a non-Message endpoint return as HandlerError naming the class and keeps serving" do
     returns = [nil, ServiceMesh::Message.new(target: echo, payload: "next")]
-    rt = described_class.new(config, map,
+    rt = described_class.new(new_client, config,
       endpoints: [ServiceMesh::Endpoint.new(target: echo, handler: ->(_) { returns.shift })], logger: quiet)
     rt.start
 
@@ -70,7 +78,7 @@ RSpec.describe ServiceMeshNats::Runtime, :nats do
       in_flight.decrement
       m
     end
-    rt = described_class.new(config.merge("concurrency" => "2"), map,
+    rt = described_class.new(new_client, config.merge("concurrency" => "2"),
       endpoints: [ServiceMesh::Endpoint.new(target: echo, handler: handler)], logger: quiet)
     rt.start
 

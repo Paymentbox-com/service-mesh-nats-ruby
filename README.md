@@ -37,7 +37,10 @@ config = {
   "deployment_group" => "demo"
 }
 
-runtime = ServiceMeshNats::Runtime.new(config, map,
+client = ServiceMeshNats::Client.new(config, map)
+# Connects. Raises BadConfig or the connection failure.
+
+runtime = ServiceMeshNats::Runtime.new(client, config,
   endpoints: [
     ServiceMesh::Endpoint.new(target: echo, handler: ->(m) { ServiceMesh::Message.new(target: echo, payload: m.payload) })
   ],
@@ -49,15 +52,14 @@ runtime = ServiceMeshNats::Runtime.new(config, map,
 runtime.start
 at_exit { runtime.stop(10) }
 
-client = runtime.client
 reply = client.request(ServiceMesh::Message.new(target: echo, payload: "hi"))
 client.publish(ServiceMesh::Message.new(target: created, payload: "order 42"))
 ```
 
-A process that only calls builds `ServiceMeshNats::Client.new(config, map)`
-and calls `close` when done. `runtime.service_map`,
-`runtime.client.service_map`, and a standalone client's `service_map` return
-the map each was built with; the transport does not validate targets against
+The client is the runtime's connection. `runtime.client` returns it, and
+`runtime.stop` closes it. A process that only calls builds a client and calls
+`close` when done. `runtime.service_map` and `client.service_map` return the
+map the client was built with; the transport does not validate targets against
 it.
 
 ## Examples
@@ -71,8 +73,9 @@ Serves one endpoint and one subscriber until SIGINT or SIGTERM, then drains
 for up to ten seconds.
 
 ```ruby
+config = {"url" => ENV.fetch("NATS_URL", "nats://127.0.0.1:4222"), "deployment_group" => "demo"}
 runtime = ServiceMeshNats::Runtime.new(
-  {"url" => ENV.fetch("NATS_URL", "nats://127.0.0.1:4222"), "deployment_group" => "demo"}, map,
+  ServiceMeshNats::Client.new(config, map), config,
   endpoints: [ServiceMesh::Endpoint.new(target: echo, handler: ->(m) {
     ServiceMesh::Message.new(target: echo, payload: m.payload)
   })],
@@ -124,8 +127,12 @@ sub = ServiceMesh::Subscriber.new(target: created, handler: on_created)
 
 # billing and audit each run this subscriber under their own deployment_group,
 # so every event is handled once per deployment.
-billing = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "billing"}, map, subscribers: [sub])
-audit   = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "audit"}, map, subscribers: [sub])
+serve = ->(group, subscribers) do
+  config = {"url" => url, "deployment_group" => group}
+  ServiceMeshNats::Runtime.new(ServiceMeshNats::Client.new(config, map), config, subscribers: subscribers)
+end
+billing = serve.call("billing", [sub])
+audit   = serve.call("audit", [sub])
 
 # Every instance of a deployment handles every event: no group at all.
 broadcast = ServiceMesh::Subscriber.new(
@@ -133,7 +140,7 @@ broadcast = ServiceMesh::Subscriber.new(
   metadata: {ServiceMesh::CONSUMER_GROUP_KEY => ServiceMesh::CONSUMER_GROUP_NONE},
   handler: on_created
 )
-cache = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "cache"}, map, subscribers: [broadcast])
+cache = serve.call("cache", [broadcast])
 
 [billing, audit, cache].each(&:start)
 # One publish to created now produces three "created" lines: billing, audit, cache.
@@ -144,20 +151,21 @@ cache = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "cache
 | constant                        | role                                                         |
 |---------------------------------|--------------------------------------------------------------|
 | `ServiceMesh::Target`, `ServiceMap`, `Message`, `Endpoint`, `Subscriber` | `Data` values from the `service_mesh` gem. `Message#payload` is always `Encoding::BINARY`. |
-| `ServiceMeshNats::Client.new(config, service_map, logger: nil, connect: true)` | `#request(message, opts = {})`, `#publish(message, opts = {})`, `#connect`, `#close`, `#connection`, `#service_map` |
-| `ServiceMeshNats::Runtime.new(config, service_map, endpoints:, subscribers:, logger:)` | `#client`, `#start`, `#stop(drain_seconds)`, `#running?`, `#service_map` |
+| `ServiceMeshNats::Client.new(config, service_map, logger: nil)` | `#request(message, opts = {})`, `#publish(message, opts = {})`, `#close`, `#connection`, `#service_map` |
+| `ServiceMeshNats::Runtime.new(client, config, endpoints: [], subscribers: [], logger: Logger.new($stderr))` | `#client`, `#start`, `#stop(drain_seconds)`, `#running?`, `#service_map` |
 | `ServiceMesh::KindMismatch`, `InvalidTarget`, `NoDeploymentGroup` | the specification's errors, from `service_mesh` |
-| `ServiceMeshNats::BadConfig`, `NotConnected`, `Closed`, `AlreadyStarted`, `Stopped`, `HandlerError` | this transport's errors, listed under Transport errors below |
+| `ServiceMeshNats::BadConfig`, `Closed`, `AlreadyStarted`, `Stopped`, `HandlerError` | this transport's errors, listed under Transport errors below |
 
-A `Client` owns one NATS connection. `new` opens it, or leaves it unopened
-when `connect: false` is given; `connect` opens it later and returns without
-effect on a client that is already connected. `request` and `publish` raise
-`NotConnected` while the connection is not open and `Closed` after `close`.
-`close` closes the connection, returns `nil`, and is idempotent; a closed
-client is final, so `connect` after `close` raises `Closed`. `connection`
-returns the `NATS::IO::Client` the client owns and raises the same two
-errors; `Runtime` subscribes through it. Connection errors that nats-pure
-reports asynchronously go to `logger:` when one is given.
+A `Client` owns one NATS connection. `new` opens it and returns the connected
+client; a connection failure passes through from `new`. `request` and
+`publish` raise `Closed` after `close`. `close` closes the connection, returns
+`nil`, and is idempotent; a closed client is final. `connection` returns the
+`NATS::IO::Client` the client owns and raises `Closed` after `close`;
+`Runtime` subscribes through it. Connection errors that nats-pure reports
+asynchronously go to `logger:` when one is given.
+
+A `Runtime` is built from a `Client` the application constructed. `client`
+returns that object in every state and `service_map` returns its map.
 
 `Runtime#stop` returns `true` when every in-flight handler finished within
 the drain and `false` when some were abandoned.
@@ -170,22 +178,23 @@ The specification leaves these to each transport.
 non-empty and free of `.`, `*`, `>`, whitespace, and non-printable
 characters. Targets are literal; no wildcards.
 
-**Configuration.** All values are strings. Beyond `deployment_group` the
-keys are:
+**Configuration.** All values are strings. `Client.new` reads the connection
+keys and `Runtime.new` reads `deployment_group` and `concurrency`; each
+ignores the other's keys, so one hash can be given to both.
 
-| key               | default                  | meaning                                            |
-|-------------------|--------------------------|----------------------------------------------------|
-| `url`             | `nats://127.0.0.1:4222`  | server URL                                         |
-| `name`            | none                     | connection name reported to the server             |
-| `connect_timeout` | `5`                      | seconds to wait for the initial connection         |
-| `request_timeout` | `30`                     | seconds a `request` waits for a reply; also accepted as a per-call option |
-| `concurrency`     | processor count          | handler threads                                    |
+| key               | read by   | default                  | meaning                                            |
+|-------------------|-----------|--------------------------|----------------------------------------------------|
+| `url`             | `Client`  | `nats://127.0.0.1:4222`  | server URL                                         |
+| `name`            | `Client`  | none                     | connection name reported to the server             |
+| `connect_timeout` | `Client`  | `5`                      | seconds to wait for the initial connection         |
+| `request_timeout` | `Client`  | `30`                     | seconds a `request` waits for a reply; also accepted as a per-call option |
+| `deployment_group`| `Runtime` | required                 | the specification's deployment group               |
+| `concurrency`     | `Runtime` | processor count          | handler threads                                    |
 
 Durations are seconds, whole or fractional, such as `"5"` or `"0.25"`. A
 value that does not parse raises `BadConfig`. A `Logger` is passed to
-`Runtime.new` as the `logger:` keyword and defaults to standard error; the
-runtime hands it to its client. `Client.new` takes the same keyword with no
-default.
+`Runtime.new` as the `logger:` keyword and defaults to standard error.
+`Client.new` takes the same keyword with no default.
 
 **Metadata.** Message metadata rides as NATS headers, one value per key. The
 runtime reads no message keys and writes `Mesh-Handler-Error` on a failed
@@ -213,19 +222,21 @@ the target.
 **Concurrency.** Handlers run on a fixed pool of `concurrency` threads.
 Deliveries beyond that wait in the pool's queue.
 
-**Lifecycle.** The runtime's client owns the runtime's connection.
-`Runtime#client` returns that one client in every state. `start` connects
-it, subscribes through its connection, and flushes so the server knows every
-subscription before it returns. `stop(drain)` unsubscribes, waits up to
-`drain` seconds for in-flight handlers, flushes, and closes the client.
-Handlers still running at the end of the drain are left to finish on their
-own threads. The client's `request` and `publish` raise `NotConnected`
-before `start` and `Closed` after `stop`. Closing the runtime's client
-directly ends the runtime's connection; a `stop` that follows skips the
-flush and returns the drain result. A runtime does not restart; `start`
-after `stop` raises `Stopped`. A connection failure in `start` passes
-through and leaves the runtime startable. A failure while subscribing closes
-the client and marks the runtime stopped.
+**Lifecycle.** The client given to `Runtime.new` owns the runtime's
+connection. `Runtime#client` returns that object in every state, and the
+client serves requests before `start` as well as during it. `Runtime.new`
+does not touch the connection. `start` subscribes through
+`client.connection` and flushes, with a budget of five seconds, so the server
+knows every subscription before it returns; `start` on a closed client raises
+`Closed` and leaves the runtime not running. `stop(drain)` unsubscribes,
+waits up to `drain` seconds for in-flight handlers, flushes, and closes the
+client. Handlers still running at the end of the drain are left to finish on
+their own threads. The client's `request` and `publish` raise `Closed` after
+`stop`. `stop` on a runtime that has not started returns `true` and leaves
+the client open. Closing the client directly ends the runtime's connection; a
+`stop` that follows skips the flush and returns the drain result. A runtime
+does not restart; `start` after `stop` raises `Stopped`. A failure while
+subscribing closes the client and marks the runtime stopped.
 
 **Transport errors.** nats-pure errors pass through unchanged, including
 connection failures such as `Errno::ECONNREFUSED`. This transport's own
@@ -234,8 +245,7 @@ errors, all under `ServiceMeshNats::Error`:
 | error             | raised when                                                                 |
 |-------------------|-----------------------------------------------------------------------------|
 | `BadConfig`       | a configuration value or per-call option does not parse                     |
-| `NotConnected`    | `request`, `publish`, or `connection` on a client whose connection is not open |
-| `Closed`          | `request`, `publish`, `connection`, or `connect` on a client after `close`  |
+| `Closed`          | `request`, `publish`, or `connection` on a client after `close`; `start` on a runtime whose client is closed |
 | `AlreadyStarted`  | `start` on a running runtime                                                |
 | `Stopped`         | `start` on a runtime after `stop`                                           |
 | `HandlerError`    | the serving endpoint handler raised; `#text` is its message                 |
