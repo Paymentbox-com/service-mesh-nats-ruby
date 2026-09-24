@@ -144,10 +144,20 @@ cache = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "cache
 | constant                        | role                                                         |
 |---------------------------------|--------------------------------------------------------------|
 | `ServiceMesh::Target`, `ServiceMap`, `Message`, `Endpoint`, `Subscriber` | `Data` values from the `service_mesh` gem. `Message#payload` is always `Encoding::BINARY`. |
-| `ServiceMeshNats::Client.new(config, service_map)` | `#request(message, opts = {})`, `#publish(message, opts = {})`, `#close`, `#service_map` |
+| `ServiceMeshNats::Client.new(config, service_map, logger: nil, connect: true)` | `#request(message, opts = {})`, `#publish(message, opts = {})`, `#connect`, `#close`, `#connection`, `#service_map` |
 | `ServiceMeshNats::Runtime.new(config, service_map, endpoints:, subscribers:, logger:)` | `#client`, `#start`, `#stop(drain_seconds)`, `#running?`, `#service_map` |
 | `ServiceMesh::KindMismatch`, `InvalidTarget`, `NoDeploymentGroup` | the specification's errors, from `service_mesh` |
-| `ServiceMeshNats::BadConfig`, `NotRunning`, `AlreadyStarted`, `Stopped`, `DuplicateTarget`, `HandlerError` | this transport's errors |
+| `ServiceMeshNats::BadConfig`, `NotConnected`, `Closed`, `AlreadyStarted`, `Stopped`, `DuplicateTarget`, `HandlerError` | this transport's errors, listed under Transport errors below |
+
+A `Client` owns one NATS connection. `new` opens it, or leaves it unopened
+when `connect: false` is given; `connect` opens it later and returns without
+effect on a client that is already connected. `request` and `publish` raise
+`NotConnected` while the connection is not open and `Closed` after `close`.
+`close` closes the connection, returns `nil`, and is idempotent; a closed
+client is final, so `connect` after `close` raises `Closed`. `connection`
+returns the `NATS::IO::Client` the client owns and raises the same two
+errors; `Runtime` subscribes through it. Connection errors that nats-pure
+reports asynchronously go to `logger:` when one is given.
 
 `Runtime#stop` returns `true` when every in-flight handler finished within
 the drain and `false` when some were abandoned.
@@ -173,7 +183,9 @@ keys are:
 
 Durations are seconds, whole or fractional, such as `"5"` or `"0.25"`. A
 value that does not parse raises `BadConfig`. A `Logger` is passed to
-`Runtime.new` as the `logger:` keyword and defaults to standard error.
+`Runtime.new` as the `logger:` keyword and defaults to standard error; the
+runtime hands it to its client. `Client.new` takes the same keyword with no
+default.
 
 **Metadata.** Message metadata rides as NATS headers, one value per key. The
 runtime reads no message keys and writes `Mesh-Handler-Error` on a failed
@@ -199,16 +211,33 @@ the target.
 **Concurrency.** Handlers run on a fixed pool of `concurrency` threads.
 Deliveries beyond that wait in the pool's queue.
 
-**Lifecycle.** `start` connects, subscribes, and flushes so the server knows
-every subscription before it returns. `stop(drain)` unsubscribes, waits up to
-`drain` seconds for in-flight handlers, flushes, and closes. Handlers still
-running at the end of the drain are left to finish on their own threads.
-A runtime does not restart; `start` after `stop` raises `Stopped`.
-`Runtime#client` shares the runtime's connection, its `close` is a no-op,
-and it raises `NotRunning` outside the running window.
+**Lifecycle.** The runtime's client owns the runtime's connection.
+`Runtime#client` returns that one client in every state. `start` connects
+it, subscribes through its connection, and flushes so the server knows every
+subscription before it returns. `stop(drain)` unsubscribes, waits up to
+`drain` seconds for in-flight handlers, flushes, and closes the client.
+Handlers still running at the end of the drain are left to finish on their
+own threads. The client's `request` and `publish` raise `NotConnected`
+before `start` and `Closed` after `stop`. Closing the runtime's client
+directly ends the runtime's connection; a `stop` that follows skips the
+flush and returns the drain result. A runtime does not restart; `start`
+after `stop` raises `Stopped`. A connection failure in `start` passes
+through and leaves the runtime startable. A failure while subscribing closes
+the client and marks the runtime stopped.
 
 **Transport errors.** nats-pure errors pass through unchanged, including
-connection failures such as `Errno::ECONNREFUSED`.
+connection failures such as `Errno::ECONNREFUSED`. This transport's own
+errors, all under `ServiceMeshNats::Error`:
+
+| error             | raised when                                                                 |
+|-------------------|-----------------------------------------------------------------------------|
+| `BadConfig`       | a configuration value or per-call option does not parse                     |
+| `NotConnected`    | `request`, `publish`, or `connection` on a client whose connection is not open |
+| `Closed`          | `request`, `publish`, `connection`, or `connect` on a client after `close`  |
+| `AlreadyStarted`  | `start` on a running runtime                                                |
+| `Stopped`         | `start` on a runtime after `stop`                                           |
+| `DuplicateTarget` | two bindings on one subject at `Runtime.new`                                |
+| `HandlerError`    | the serving endpoint handler raised; `#text` is its message                 |
 
 ## Development
 

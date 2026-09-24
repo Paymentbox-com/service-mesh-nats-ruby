@@ -17,8 +17,8 @@ module ServiceMeshNats
 
   # A parsed configuration hash.
   Settings = Data.define(:url, :name, :deployment_group, :connect_timeout, :request_timeout, :concurrency) do
-    # +require_deployment_group+ is true for a Runtime and false for a
-    # standalone Client, which ignores the key.
+    # +require_deployment_group+ is true for a Runtime and false for a Client,
+    # which ignores the key.
     def self.parse(config, require_deployment_group:)
       config = config.to_h
       deployment_group = config[ServiceMesh::DEPLOYMENT_GROUP_KEY].to_s

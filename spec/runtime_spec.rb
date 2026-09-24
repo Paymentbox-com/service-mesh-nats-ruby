@@ -6,12 +6,42 @@ RSpec.describe ServiceMeshNats::Runtime, :nats do
   let(:map) { ServiceMesh::ServiceMap.new }
   let(:quiet) { Logger.new(File::NULL) }
   let(:client) { ServiceMeshNats::Client.new({"url" => url}, map) }
+  let(:config) { {"url" => url, "deployment_group" => "test"} }
 
   after { client.close }
+
+  def echo_runtime(extra = {})
+    described_class.new(config.merge(extra), map,
+      endpoints: [ServiceMesh::Endpoint.new(target: echo, handler: ->(m) { m })], logger: quiet)
+  end
 
   it "surfaces a connect failure and stays not running" do
     rt = described_class.new({"url" => "nats://127.0.0.1:1", "connect_timeout" => "0.2", "deployment_group" => "t"}, map, logger: quiet)
     expect { rt.start }.to raise_error(Errno::ECONNREFUSED)
+    expect(rt.running?).to be(false)
+  end
+
+  it "keeps one client across start" do
+    rt = echo_runtime
+    before = rt.client
+    rt.start
+    expect(rt.client).to equal(before)
+  ensure
+    rt&.stop(3)
+  end
+
+  it "closes its client on stop" do
+    rt = echo_runtime
+    rt.start
+    rt.stop(3)
+    expect { rt.client.request(ServiceMesh::Message.new(target: echo)) }.to raise_error(ServiceMeshNats::Closed)
+  end
+
+  it "stops after its client was closed directly" do
+    rt = echo_runtime
+    rt.start
+    rt.client.close
+    expect(rt.stop(0)).to be(true)
     expect(rt.running?).to be(false)
   end
 
@@ -25,7 +55,7 @@ RSpec.describe ServiceMeshNats::Runtime, :nats do
       in_flight.decrement
       m
     end
-    rt = described_class.new({"url" => url, "deployment_group" => "test", "concurrency" => "2"}, map,
+    rt = described_class.new(config.merge("concurrency" => "2"), map,
       endpoints: [ServiceMesh::Endpoint.new(target: echo, handler: handler)], logger: quiet)
     rt.start
 

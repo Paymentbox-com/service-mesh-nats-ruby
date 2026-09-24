@@ -3,36 +3,70 @@
 require "nats/io/client"
 
 module ServiceMeshNats
-  # Sends messages over a NATS connection.
+  # Owns one NATS connection and sends messages over it. A Runtime builds its
+  # client with +connect: false+, connects it in start, and closes it in stop.
   class Client
     # The map this client was built with: the one given to +new+, or the
     # runtime's for a client from Runtime#client. The client does not
     # otherwise use it.
     attr_reader :service_map
 
-    # Connects and returns a client that owns its connection and holds
-    # +service_map+. ServiceMesh::DEPLOYMENT_GROUP_KEY is ignored.
-    def initialize(config, service_map)
+    # Parses +config+ (ServiceMesh::DEPLOYMENT_GROUP_KEY is ignored), builds
+    # the NATS connection, and opens it unless +connect+ is false. Connection
+    # errors reported by nats-pure are logged to +logger+ when one is given.
+    def initialize(config, service_map, logger: nil, connect: true)
       @settings = Settings.parse(config, require_deployment_group: false)
       @service_map = service_map
+      @logger = logger
       @subjects = {}
       @subjects_lock = Mutex.new
-      @owns_connection = true
-      @nc = NATS::IO::Client.new
-      @nc.connect(@settings.connect_options)
+      @lock = Mutex.new
+      @state = :disconnected
+      @nc = build_nc
+      self.connect if connect
     end
 
-    # A client whose connection a Runtime attaches and detaches. Its close is
-    # a no-op.
-    def self.shared(settings, service_map)
-      client = allocate
-      client.instance_variable_set(:@settings, settings)
-      client.instance_variable_set(:@service_map, service_map)
-      client.instance_variable_set(:@subjects, {})
-      client.instance_variable_set(:@subjects_lock, Mutex.new)
-      client.instance_variable_set(:@owns_connection, false)
-      client.instance_variable_set(:@nc, nil)
-      client
+    # Opens the connection. Returns nil. A connected client returns without
+    # effect; a closed client raises Closed. A connection failure passes
+    # through unchanged and leaves the client not connected.
+    def connect
+      @lock.synchronize do
+        raise Closed if @state == :closed
+        return nil if @state == :connected
+
+        begin
+          @nc.connect(@settings.connect_options)
+        rescue => e
+          # nats-pure remembers that connect was called, so a retry needs a
+          # fresh instance.
+          @nc = build_nc
+          raise e
+        end
+        @state = :connected
+      end
+      nil
+    end
+
+    # Closes the connection if one is open and marks the client closed.
+    # Returns nil. Idempotent.
+    def close
+      @lock.synchronize do
+        return nil if @state == :closed
+
+        @nc.close if @state == :connected
+        @state = :closed
+      end
+      nil
+    end
+
+    # The NATS::IO::Client this client owns. Used by Runtime. Raises
+    # NotConnected before connect and Closed after close.
+    def connection
+      case @state
+      when :connected then @nc
+      when :closed then raise Closed
+      else raise NotConnected
+      end
     end
 
     # Sends +message+ to a route target and returns the reply.
@@ -62,28 +96,12 @@ module ServiceMeshNats
       nil
     end
 
-    # Releases the connection when this client owns it.
-    def close
-      return nil unless @owns_connection
-
-      nc, @nc = @nc, nil
-      nc&.close
-      nil
-    end
-
-    # Used by Runtime.
-    def attach(nc)
-      @nc = nc
-    end
-
-    def detach
-      @nc = nil
-    end
-
     private
 
-    def connection
-      @nc or raise NotRunning
+    def build_nc
+      nc = NATS::IO::Client.new
+      nc.on_error { |e| @logger.warn("service_mesh_nats: #{e.class}: #{e.message}") } if @logger
+      nc
     end
 
     def nats_msg(subject, message)

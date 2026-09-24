@@ -7,8 +7,12 @@ module ServiceMeshNats
 
   class BadConfig < Error; end
 
-  class NotRunning < Error
-    def initialize(msg = "runtime is not running") = super
+  class NotConnected < Error
+    def initialize(msg = "client is not connected") = super
+  end
+
+  class Closed < Error
+    def initialize(msg = "client has been closed") = super
   end
 
   class AlreadyStarted < Error

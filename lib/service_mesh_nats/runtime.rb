@@ -16,17 +16,17 @@ module ServiceMeshNats
     attr_reader :service_map, :client
 
     # Raises ServiceMesh::NoDeploymentGroup, BadConfig, ServiceMesh::KindMismatch,
-    # ServiceMesh::InvalidTarget, or DuplicateTarget.
+    # ServiceMesh::InvalidTarget, or DuplicateTarget. The client is built
+    # unconnected; start connects it and stop closes it.
     def initialize(config, service_map, endpoints: [], subscribers: [], logger: Logger.new($stderr))
       @settings = Settings.parse(config, require_deployment_group: true)
       @service_map = service_map
       @logger = logger
-      @client = Client.shared(@settings, service_map)
+      @client = Client.new(config, service_map, logger: logger, connect: false)
       @bindings = bind_all(endpoints, subscribers)
 
       @lock = Mutex.new
       @state = :created
-      @nc = nil
       @subs = []
       @pool = nil
     end
@@ -35,16 +35,18 @@ module ServiceMeshNats
       @state == :running
     end
 
-    # Connects, subscribes every binding, and begins receiving. Raises
-    # AlreadyStarted on a running runtime and Stopped after stop.
+    # Connects the client, subscribes every binding, and begins receiving.
+    # Raises AlreadyStarted on a running runtime and Stopped after stop. A
+    # connection failure passes through and leaves the runtime startable. A
+    # failure while subscribing closes the client, marks the runtime stopped,
+    # and passes through.
     def start
       @lock.synchronize do
         raise AlreadyStarted if @state == :running
         raise Stopped if @state == :stopped
 
-        nc = NATS::IO::Client.new
-        nc.on_error { |e| @logger.warn("service_mesh_nats: #{e.class}: #{e.message}") }
-        nc.connect(@settings.connect_options)
+        @client.connect
+        nc = @client.connection
 
         pool = Concurrent::FixedThreadPool.new(@settings.concurrency, name: "service_mesh_nats")
         subs = []
@@ -58,22 +60,23 @@ module ServiceMeshNats
         rescue => e
           subs.each { |s| s.unsubscribe rescue nil } # rubocop:disable Style/RescueModifier
           pool.kill
-          nc.close
+          @client.close
+          @state = :stopped
           raise e
         end
 
-        @nc = nc
         @subs = subs
         @pool = pool
-        @client.attach(nc)
         @state = :running
       end
       nil
     end
 
     # Stops receiving, waits up to +drain+ seconds for in-flight handlers,
-    # then closes. Returns true when every handler finished, false when some
-    # were abandoned. A runtime that is not running returns true.
+    # flushes, then closes the client. Returns true when every handler
+    # finished, false when some were abandoned. A runtime that is not running
+    # returns true. A client the caller closed directly is treated as gone:
+    # nothing is flushed and the drain result is still returned.
     def stop(drain)
       drain = Float(drain)
       raise ArgumentError, "drain must be non-negative" if drain.negative?
@@ -82,24 +85,26 @@ module ServiceMeshNats
         return true unless @state == :running
 
         @state = :stopped
-        @client.detach
         @subs.each { |s| s.unsubscribe rescue nil } # rubocop:disable Style/RescueModifier
 
         @pool.shutdown
         finished = @pool.wait_for_termination(drain)
-        begin
-          @nc.flush(FLUSH_BUDGET) if finished
-        rescue => e
-          @logger.warn("service_mesh_nats: flush during stop failed: #{e.message}")
-        end
-        @nc.close
-        @nc = nil
+        flush if finished
+        @client.close
         @subs = []
         finished
       end
     end
 
     private
+
+    def flush
+      @client.connection.flush(FLUSH_BUDGET)
+    rescue Closed
+      # The caller closed the client directly; there is nothing to flush.
+    rescue => e
+      @logger.warn("service_mesh_nats: flush during stop failed: #{e.message}")
+    end
 
     def bind_all(endpoints, subscribers)
       seen = {}
