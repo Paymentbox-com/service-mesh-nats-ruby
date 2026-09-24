@@ -5,7 +5,7 @@ require "logger"
 require "nats/io/client"
 
 module ServiceMeshNats
-  # The service process: binds endpoints and subscribers over one NATS
+  # The service process: subscribes endpoints and subscribers on one NATS
   # connection and runs their handlers on a bounded thread pool.
   class Runtime
     # A validated Endpoint or Subscriber. queue nil means a plain subscription.
