@@ -23,8 +23,6 @@ module ServiceMeshNats
     def initialize(msg = "runtime has been stopped; it is not restartable") = super
   end
 
-  class DuplicateTarget < Error; end
-
   # Raised by Client#request when the serving handler raised. +text+ is the
   # handler's error message as sent by the serving runtime.
   class HandlerError < Error

@@ -20,15 +20,6 @@ RSpec.describe ServiceMeshNats::Runtime, "construction" do
     expect { described_class.new(config, map, endpoints: [endpoint(bad)]) }.to raise_error(ServiceMesh::InvalidTarget)
   end
 
-  it "rejects two endpoints on one subject" do
-    expect { described_class.new(config, map, endpoints: [endpoint(route), endpoint(route)]) }.to raise_error(ServiceMeshNats::DuplicateTarget)
-  end
-
-  it "rejects an endpoint and a subscriber on one subject" do
-    expect { described_class.new(config, map, endpoints: [endpoint(route)], subscribers: [subscriber(topic)]) }
-      .to raise_error(ServiceMeshNats::DuplicateTarget)
-  end
-
   it "rejects a handler that cannot be called" do
     ep = ServiceMesh::Endpoint.new(target: route, handler: :not_callable)
     expect { described_class.new(config, map, endpoints: [ep]) }.to raise_error(ArgumentError)

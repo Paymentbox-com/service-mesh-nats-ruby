@@ -16,8 +16,9 @@ module ServiceMeshNats
     attr_reader :service_map, :client
 
     # Raises ServiceMesh::NoDeploymentGroup, BadConfig, ServiceMesh::KindMismatch,
-    # ServiceMesh::InvalidTarget, or DuplicateTarget. The client is built
-    # unconnected; start connects it and stop closes it.
+    # or ServiceMesh::InvalidTarget. Two bindings on one subject become two
+    # subscriptions. The client is built unconnected; start connects it and
+    # stop closes it.
     def initialize(config, service_map, endpoints: [], subscribers: [], logger: Logger.new($stderr))
       @settings = Settings.parse(config, require_deployment_group: true)
       @service_map = service_map
@@ -107,14 +108,11 @@ module ServiceMeshNats
     end
 
     def bind_all(endpoints, subscribers)
-      seen = {}
       bind = lambda do |target, want, use, metadata, handler, replies|
         Subject.check_kind!(target, want, use)
         subject = Subject.format(target)
-        raise DuplicateTarget, subject if seen.key?(subject)
         raise ArgumentError, "#{use} #{subject} handler must respond to call" unless handler.respond_to?(:call)
 
-        seen[subject] = true
         queue = Subject.consumer_group(metadata, target.metadata, @settings.deployment_group)
         Binding.new(subject: subject, queue: queue, target: target, handler: handler, replies: replies)
       end

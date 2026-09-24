@@ -44,7 +44,7 @@ runtime = ServiceMeshNats::Runtime.new(config, map,
   subscribers: [
     ServiceMesh::Subscriber.new(target: created, handler: ->(m) { puts "created: #{m.payload}" })
   ])
-# Raises NoDeploymentGroup, BadConfig, KindMismatch, InvalidTarget, or DuplicateTarget.
+# Raises NoDeploymentGroup, BadConfig, KindMismatch, or InvalidTarget.
 
 runtime.start
 at_exit { runtime.stop(10) }
@@ -147,7 +147,7 @@ cache = ServiceMeshNats::Runtime.new({"url" => url, "deployment_group" => "cache
 | `ServiceMeshNats::Client.new(config, service_map, logger: nil, connect: true)` | `#request(message, opts = {})`, `#publish(message, opts = {})`, `#connect`, `#close`, `#connection`, `#service_map` |
 | `ServiceMeshNats::Runtime.new(config, service_map, endpoints:, subscribers:, logger:)` | `#client`, `#start`, `#stop(drain_seconds)`, `#running?`, `#service_map` |
 | `ServiceMesh::KindMismatch`, `InvalidTarget`, `NoDeploymentGroup` | the specification's errors, from `service_mesh` |
-| `ServiceMeshNats::BadConfig`, `NotConnected`, `Closed`, `AlreadyStarted`, `Stopped`, `DuplicateTarget`, `HandlerError` | this transport's errors, listed under Transport errors below |
+| `ServiceMeshNats::BadConfig`, `NotConnected`, `Closed`, `AlreadyStarted`, `Stopped`, `HandlerError` | this transport's errors, listed under Transport errors below |
 
 A `Client` owns one NATS connection. `new` opens it, or leaves it unopened
 when `connect: false` is given; `connect` opens it later and returns without
@@ -196,7 +196,8 @@ from the `Endpoint` or `Subscriber` first, then from its `Target`.
 **Delivery.** A consumer group is a NATS queue group. Every endpoint and
 subscriber joins the deployment group unless `consumer_group` overrides it.
 `none` gives a plain subscription, so every instance handles every message,
-and for an endpoint every instance replies.
+and for an endpoint every instance replies. Two bindings on one subject are
+two NATS subscriptions, with whatever delivery NATS gives them.
 
 **Handler failure.** An endpoint handler that raises produces an empty reply
 carrying the error message in the `Mesh-Handler-Error` header; the requester
@@ -236,7 +237,6 @@ errors, all under `ServiceMeshNats::Error`:
 | `Closed`          | `request`, `publish`, `connection`, or `connect` on a client after `close`  |
 | `AlreadyStarted`  | `start` on a running runtime                                                |
 | `Stopped`         | `start` on a runtime after `stop`                                           |
-| `DuplicateTarget` | two bindings on one subject at `Runtime.new`                                |
 | `HandlerError`    | the serving endpoint handler raised; `#text` is its message                 |
 
 ## Development
