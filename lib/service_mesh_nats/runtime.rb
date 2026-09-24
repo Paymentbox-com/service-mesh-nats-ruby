@@ -134,7 +134,10 @@ module ServiceMeshNats
       out = binding.handler.call(inbound)
       return unless binding.replies && msg.reply
 
-      out = ServiceMesh::Message.new(target: binding.target) unless out.is_a?(ServiceMesh::Message)
+      unless out.is_a?(ServiceMesh::Message)
+        raise TypeError, "endpoint #{binding.subject} handler returned #{out.class}, expected ServiceMesh::Message"
+      end
+
       reply(nc, msg.reply, out.metadata, out.payload)
     rescue => e
       @logger.error("service_mesh_nats: handler failed on #{binding.subject}: #{e.class}: #{e.message}")

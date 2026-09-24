@@ -45,6 +45,21 @@ RSpec.describe ServiceMeshNats::Runtime, :nats do
     expect(rt.running?).to be(false)
   end
 
+  it "reports a non-Message endpoint return as HandlerError naming the class and keeps serving" do
+    returns = [nil, ServiceMesh::Message.new(target: echo, payload: "next")]
+    rt = described_class.new(config, map,
+      endpoints: [ServiceMesh::Endpoint.new(target: echo, handler: ->(_) { returns.shift })], logger: quiet)
+    rt.start
+
+    expect { client.request(ServiceMesh::Message.new(target: echo)) }
+      .to raise_error(ServiceMeshNats::HandlerError) do |e|
+        expect(e.text).to eq("endpoint test.echo handler returned NilClass, expected ServiceMesh::Message")
+      end
+    expect(client.request(ServiceMesh::Message.new(target: echo)).payload).to eq("next")
+  ensure
+    rt&.stop(3)
+  end
+
   it "runs at most `concurrency` handlers at once and reaches that bound" do
     in_flight = Concurrent::AtomicFixnum.new(0)
     peak = Concurrent::AtomicFixnum.new(0)

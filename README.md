@@ -202,8 +202,9 @@ two NATS subscriptions, with whatever delivery NATS gives them.
 **Handler failure.** An endpoint handler that raises produces an empty reply
 carrying the error message in the `Mesh-Handler-Error` header; the requester
 gets `HandlerError` with that text. A failing subscriber handler is logged.
-An endpoint handler that returns something other than a `Message` produces an
-empty reply.
+An endpoint handler that returns something other than a `Message` is a handler
+failure: the runtime logs it and the requester gets `HandlerError` whose text
+names the endpoint and the class the handler returned.
 
 **Timeouts.** `request` raises `NATS::Timeout` when no reply arrives within
 the request timeout, and `NATS::IO::NoRespondersError` when nothing serves
