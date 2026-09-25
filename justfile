@@ -6,6 +6,9 @@
 # "/opt/homebrew/bin/mise exec -- bundle".
 bundle := "mise exec -- bundle"
 
+# The version in the gemspec, which names the built gem file
+version := `mise exec -- ruby -e 'print Gem::Specification.load("service_mesh_nats.gemspec").version'`
+
 # List all recipes
 default:
     @just --list
@@ -20,11 +23,20 @@ install:
 test:
     {{bundle}} exec rspec
 
-# Build the gem into pkg/
+# Build the gem into pkg/service_mesh_nats-<version>.gem
 [group('build')]
 build:
     mkdir -p pkg
-    mise exec -- gem build service_mesh_nats.gemspec --output pkg/service_mesh_nats.gem
+    mise exec -- gem build service_mesh_nats.gemspec --output pkg/service_mesh_nats-{{version}}.gem
+
+# Push the built gem to rubygems.org; asks for the MFA code
+[group('release')]
+publish:
+    mise exec -- gem push pkg/service_mesh_nats-{{version}}.gem
+
+# Build the gem and push it to rubygems.org
+[group('release')]
+release: build publish
 
 # Report lint findings (matches CI)
 [group('checks')]

@@ -31,12 +31,12 @@ This stores an API key in `~/.gem/credentials`.
    ```sh
    git checkout vX.Y.Z
    git status --short          # must print nothing
-   mise exec -- gem build service_mesh_nats.gemspec
-   mise exec -- gem push service_mesh_nats-X.Y.Z.gem
+   just release
    git checkout master
    ```
 
-   `gem push` prompts for the MFA code.
+   `just release` runs `just build`, which writes `pkg/service_mesh_nats-X.Y.Z.gem`, then
+   `just publish`, which pushes that file and prompts for the MFA code.
 
 A pushed version is permanent. It can be yanked with `gem yank service_mesh_nats -v X.Y.Z`,
 but that version number can never be pushed again.
