@@ -5,7 +5,8 @@ require_relative "lib/service_mesh_nats/version"
 Gem::Specification.new do |spec|
   spec.name = "service_mesh_nats"
   spec.version = ServiceMeshNats::VERSION
-  spec.authors = ["Paymentbox"]
+  spec.authors = ["Bryant Morrill", "Paymentbox"]
+  spec.email = ["bmorrill@pmtbox.com"]
   spec.summary = "Ruby implementation of the Service Mesh API Specification over NATS"
   spec.homepage = "https://github.com/Paymentbox-com/service-mesh-nats-ruby"
   spec.license = "MIT"
