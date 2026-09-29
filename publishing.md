@@ -21,7 +21,7 @@ This stores an API key in `~/.gem/credentials`.
 ## Releasing a Version
 
 1. Run `just bump patch`, `just bump minor`, or `just bump major` to set the new
-   version in `lib/service_mesh_nats/version.rb`, then commit and push `master`.
+   version in `lib/service_mesh_nats/version.rb` and commit that file, then push `master`.
 2. Wait for CI on `master` to pass.
 3. Run the release from that commit:
 

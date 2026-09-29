@@ -25,7 +25,7 @@ recipes.
 | `just tag` | Tags the current commit with the gem's version and pushes the tag. It refuses a working tree with changes. |
 | `just publish` | Pushes the built gem to rubygems.org. |
 | `just release` | Runs `tag`, `build`, and `publish`. |
-| `just bump patch`, `just bump minor`, `just bump major` | Raises the version in `lib/service_mesh_nats/version.rb` by one step. A minor bump resets the patch number, and a major bump resets both. |
+| `just bump patch`, `just bump minor`, `just bump major` | Raises the version in `lib/service_mesh_nats/version.rb` by one step and commits that file alone. A minor bump resets the patch number, and a major bump resets both. |
 
 ## Tests
 

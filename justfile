@@ -59,7 +59,7 @@ fmt:
 [group('checks')]
 check: lint test build
 
-# Bump the version in lib/service_mesh_nats/version.rb by one patch, minor, or major step: just bump patch
+# Bump the version in lib/service_mesh_nats/version.rb by one patch, minor, or major step and commit that file: just bump patch
 [group('release')]
 bump part:
     #!/usr/bin/env bash
@@ -75,4 +75,5 @@ bump part:
     next="${major}.${minor}.${patch}"
     perl -pi -e "s/VERSION = \"$current\"/VERSION = \"$next\"/" lib/service_mesh_nats/version.rb
     grep -q "VERSION = \"$next\"" lib/service_mesh_nats/version.rb || (echo "could not update lib/service_mesh_nats/version.rb" >&2 && exit 1)
-    echo "$current -> $next"
+    git commit -q -m "Release $next" -- lib/service_mesh_nats/version.rb
+    echo "$current -> $next, committed"
