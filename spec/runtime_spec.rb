@@ -37,6 +37,21 @@ RSpec.describe ServiceMeshNats::Runtime, :nats do
     expect(rt.running?).to be(false)
   end
 
+  it "leaves the runtime and the client as they were when subscribing fails" do
+    given = new_client
+    rt = echo_runtime(given)
+    allow(given.connection).to receive(:flush).and_raise(NATS::IO::Timeout)
+
+    expect { rt.start }.to raise_error(NATS::IO::Timeout)
+    expect(rt.running?).to be(false)
+    expect(given.connection).to be_a(NATS::IO::Client)
+
+    allow(given.connection).to receive(:flush).and_call_original
+    rt.start
+    expect(rt.running?).to be(true)
+    rt.stop(3)
+  end
+
   it "closes the given client on stop" do
     given = new_client
     rt = echo_runtime(given)

@@ -45,8 +45,8 @@ module ServiceMeshNats
     # Subscribes every binding on the client's connection and begins
     # receiving. Raises AlreadyStarted on a running runtime, Stopped after
     # stop, and Closed when the client has been closed. A failure while
-    # subscribing closes the client, marks the runtime stopped, and passes
-    # through.
+    # subscribing or flushing unsubscribes what was subscribed, leaves the
+    # runtime and the client as they were, and passes through.
     def start
       @lock.synchronize do
         raise AlreadyStarted if @state == :running
@@ -66,8 +66,6 @@ module ServiceMeshNats
         rescue => e
           subs.each { |s| s.unsubscribe rescue nil } # rubocop:disable Style/RescueModifier
           pool.kill
-          @client.close
-          @state = :stopped
           raise e
         end
 
