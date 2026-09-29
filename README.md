@@ -1,9 +1,20 @@
 # service-mesh-nats-ruby
 
-`service_mesh_nats` is the NATS transport implementation in Ruby for the
-[Service Mesh API Specification](https://github.com/Paymentbox-com/service-mesh-api).
+`service_mesh_nats` is the Ruby implementation of the
+[Service Mesh API Specification](https://github.com/Paymentbox-com/service-mesh-api)
+over NATS. It implements the Ruby contract in the `service_mesh` gem, from
+[service-mesh-ruby](https://github.com/Paymentbox-com/service-mesh-ruby), on
+top of the `nats-pure` client.
 
-This gem depends on the contract types and errors in [service-mesh-ruby](https://github.com/Paymentbox-com/service-mesh-ruby).
+The `ServiceMeshNats` module provides:
+* `Client`, which implements the contract's `Client` over one NATS connection
+* `Runtime`, which implements the contract's `Runtime` on a `Client`'s connection
+* the configuration keys it reads
+* the errors it defines
+
+The contract types it works with, such as `ServiceMesh::Target`,
+`ServiceMesh::Message`, `ServiceMesh::Endpoint`, and `ServiceMesh::Subscriber`,
+come from the `service_mesh` gem.
 
 ## Install
 
@@ -12,7 +23,7 @@ This gem depends on the contract types and errors in [service-mesh-ruby](https:/
 gem "service_mesh_nats"
 ```
 
-Requires Ruby 3.3 or newer and a reachable NATS server. Depends on
+Requires Ruby 3.3 or newer and a reachable NATS server. The gem depends on
 `service_mesh` and `nats-pure`.
 
 ## Usage
@@ -49,15 +60,14 @@ reply = client.request(ServiceMesh::Message.new(target: echo, payload: "hi"))
 client.publish(ServiceMesh::Message.new(target: created, payload: "order 42"))
 ```
 
-The client is the runtime's connection. `runtime.client` returns it, and
-`runtime.stop` closes it. A process that only requests and
-publishes builds a client itself and calls `close` when done.
-`runtime.service_map` and `client.service_map` return the map the client was
-built with.
+The client is the runtime's connection. `runtime.client` returns it in every
+state, and `runtime.stop` closes it. A process that only requests and publishes
+builds a client itself and calls `close` when done. `runtime.service_map` and
+`client.service_map` return the map the client was built with.
 
 ## Documentation
 
 - [Examples](docs/examples.md): a server process, a call-only client process, and consumer groups
-- [Public API](docs/public-api.md): the constants this gem exposes and how `Client` and `Runtime` behave
-- [What the NATS Runtime Decides](docs/runtime-behavior.md): targets, configuration, metadata, delivery, handler failure, timeouts, concurrency, lifecycle, and transport errors
+- [Public API](docs/public-api.md): every public constant and method in `ServiceMeshNats`
+- [Transport Specific Implementation](docs/transport-specific-implementation.md): subjects, configuration, metadata, delivery, handler failure, timeouts, concurrency, lifecycle, and errors
 - [Development](docs/development.md): the recipes and the tests

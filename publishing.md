@@ -5,9 +5,12 @@ from a local checkout. The account that pushes is an owner of the gem, and
 rubygems.org asks for its MFA code on every push because the gemspec sets
 `rubygems_mfa_required`.
 
-This gem depends on `service_mesh`. A release that needs a newer `service_mesh` is published after that `service_mesh` version is on rubygems.org, since `gem push` accepts the gem either way but `bundle install` fails for anyone installing it until the dependency exists.
+This gem depends on `service_mesh`. A release that needs a newer `service_mesh`
+is published after that `service_mesh` version is on rubygems.org. `gem push`
+accepts the gem either way, but `bundle install` fails for anyone installing it
+until the dependency exists.
 
-## One-time setup
+## One-Time Setup
 
 ```sh
 gem signin
@@ -15,7 +18,7 @@ gem signin
 
 This stores an API key in `~/.gem/credentials`.
 
-## Releasing a version
+## Releasing a Version
 
 1. Set the new version in `lib/service_mesh_nats/version.rb`, commit, and push `master`.
 2. Wait for CI on `master` to pass.
@@ -34,7 +37,7 @@ This stores an API key in `~/.gem/credentials`.
 A pushed version is permanent. It can be yanked with `gem yank service_mesh_nats -v X.Y.Z`,
 but that version number can never be pushed again.
 
-## Adding an owner
+## Adding an Owner
 
 ```sh
 gem owner service_mesh_nats --add someone@example.com

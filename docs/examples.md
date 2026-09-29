@@ -1,7 +1,10 @@
 # Examples
 
-Each snippet below runs as written against a local `nats-server`. The
-`echo`, `created`, and `map` values are the values declared under [Usage](../README.md#usage).
+These examples show the three shapes a process using this transport usually
+takes: one that serves, one that only calls, and several deployments sharing a
+topic. Each snippet runs against a local `nats-server`, and uses the `echo`,
+`created`, and `map` values declared under [Usage](../README.md#usage).
+`NATS_URL` points a snippet at a different server.
 
 ## A Server Process
 
@@ -30,7 +33,7 @@ runtime.stop(10) or warn "some handlers were abandoned" # drain up to 10 seconds
 
 ## A Call-Only Client Process
 
-Makes one request with metadata and a per-call timeout, rescues each
+Makes one request with metadata and a per-call timeout, handles each
 outcome, then publishes an event.
 
 ```ruby
@@ -45,8 +48,10 @@ begin
 rescue ServiceMesh::KindMismatch          # a topic target given to request
 rescue NATS::IO::NoRespondersError        # nothing serves demo.echo
 rescue NATS::Timeout                      # no reply within request_timeout
-rescue ServiceMeshNats::HandlerError => e # the handler raised: e.text
+rescue ServiceMeshNats::Closed            # client.close has run
+rescue ServiceMeshNats::HandlerError => e # the handler failed: e.text
 end
+# Any other nats-pure error passes through unchanged.
 
 client.publish(ServiceMesh::Message.new(target: created, payload: "order 42"))
 client.close
@@ -56,6 +61,7 @@ client.close
 
 Two deployments on one topic each handle every event once. A subscriber
 with `consumer_group` set to `none` handles every event on every instance.
+Each runtime is built from its own client, since a client is one connection.
 
 ```ruby
 url = ENV.fetch("NATS_URL", "nats://127.0.0.1:4222")

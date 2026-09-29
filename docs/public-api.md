@@ -1,23 +1,18 @@
 # Public API
 
-| Constant                        | Role                                                         |
-|---------------------------------|--------------------------------------------------------------|
-| `ServiceMesh::Target`, `ServiceMap`, `Message`, `Endpoint`, `Subscriber` | `Data` values from the `service_mesh` gem. `Message#payload` is always `Encoding::BINARY`. |
-| `ServiceMeshNats::Client.new(config, service_map, logger: nil)` | `#request(message, opts = {})`, `#publish(message, opts = {})`, `#close`, `#connection`, `#service_map` |
-| `ServiceMeshNats::Runtime.new(client, config, endpoints: [], subscribers: [], logger: Logger.new($stderr))` | `#client`, `#start`, `#stop(drain_seconds)`, `#running?`, `#service_map` |
-| `ServiceMesh::KindMismatch`, `InvalidTarget`, `NoDeploymentGroup` | the specification's errors, from `service_mesh` |
-| `ServiceMeshNats::BadConfig`, `Closed`, `AlreadyStarted`, `Stopped`, `HandlerError` | this transport's errors, listed under Transport errors in [What the NATS Runtime Decides](runtime-behavior.md) |
+Every public constant and method in `ServiceMeshNats`.
 
-A `Client` owns one NATS connection. `new` opens it and returns the connected
-client; a connection failure passes through from `new`. `request` and
-`publish` raise `Closed` after `close`. `close` closes the connection, returns
-`nil`, and is idempotent; a closed client is final. `connection` returns the
-`NATS::IO::Client` the client owns and raises `Closed` after `close`;
-`Runtime` subscribes through it. Connection errors that nats-pure reports
-asynchronously go to `logger:` when one is given.
+| Name | Role |
+|---|---|
+| `ServiceMeshNats::Client.new(config, service_map, logger: nil)` | Opens one NATS connection and returns the connected client, as described under [The Client](transport-specific-implementation.md#the-client). |
+| `ServiceMeshNats::Client` | Implements the contract's `Client`. Its methods are `#request(message, opts = {})`, `#publish(message, opts = {})`, `#close`, and `#service_map`. `#connection` returns the `NATS::IO::Client` it owns, which `Runtime` subscribes through. |
+| `ServiceMeshNats::Runtime.new(client, config, endpoints: [], subscribers: [], logger: Logger.new($stderr))` | Builds a runtime that serves the endpoints and subscribers on the client's connection, as described under [The Runtime and Its Client](transport-specific-implementation.md#the-runtime-and-its-client). |
+| `ServiceMeshNats::Runtime` | Implements the contract's `Runtime`. Its methods are `#start`, `#stop(drain)`, `#running?`, `#client`, and `#service_map`. |
+| `URL_KEY`, `NAME_KEY`, `CONNECT_TIMEOUT_KEY`, `REQUEST_TIMEOUT_KEY`, `CONCURRENCY_KEY` | The configuration keys, described under [Configuration](transport-specific-implementation.md#configuration). `REQUEST_TIMEOUT_KEY` is also a per-call option. |
+| `DEFAULT_URL`, `DEFAULT_CONNECT_TIMEOUT`, `DEFAULT_REQUEST_TIMEOUT` | The defaults for those keys. |
+| `HANDLER_ERROR_HEADER` | `"Mesh-Handler-Error"`, the reply header the runtime sets when an endpoint handler fails. |
+| `ServiceMeshNats::Error`, `BadConfig`, `Closed`, `AlreadyStarted`, `Stopped`, `HandlerError` | The errors this gem defines, listed under [Errors](transport-specific-implementation.md#errors). |
+| `ServiceMeshNats::VERSION` | The gem's version. |
 
-A `Runtime` is built from a `Client` the application constructed. `client`
-returns that object in every state and `service_map` returns its map.
-
-`Runtime#stop` returns `true` when every in-flight handler finished within
-the drain and `false` when some were abandoned.
+`ClientSettings`, `RuntimeSettings`, `Settings`, and `Subject` are shared
+between `Client` and `Runtime`, and applications do not use them.
