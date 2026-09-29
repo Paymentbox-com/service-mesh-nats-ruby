@@ -58,3 +58,21 @@ fmt:
 # Everything CI checks, in the order CI runs them
 [group('checks')]
 check: lint test build
+
+# Bump the version in lib/service_mesh_nats/version.rb by one patch, minor, or major step: just bump patch
+[group('release')]
+bump part:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    current="{{version}}"
+    IFS=. read -r major minor patch <<< "$current"
+    case "{{part}}" in
+      patch) patch=$((patch + 1)) ;;
+      minor) minor=$((minor + 1)); patch=0 ;;
+      major) major=$((major + 1)); minor=0; patch=0 ;;
+      *) echo "part must be patch, minor, or major" >&2; exit 1 ;;
+    esac
+    next="${major}.${minor}.${patch}"
+    perl -pi -e "s/VERSION = \"$current\"/VERSION = \"$next\"/" lib/service_mesh_nats/version.rb
+    grep -q "VERSION = \"$next\"" lib/service_mesh_nats/version.rb || (echo "could not update lib/service_mesh_nats/version.rb" >&2 && exit 1)
+    echo "$current -> $next"
