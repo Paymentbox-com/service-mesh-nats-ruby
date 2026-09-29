@@ -1,6 +1,6 @@
 # service-mesh-nats-ruby
 
-`service_mesh_nats` is the Ruby implementation of the
+service-mesh-nats-ruby is the Ruby implementation of the
 [Service Mesh API Specification](https://github.com/Paymentbox-com/service-mesh-api)
 over NATS. It implements the Ruby contract in the `service_mesh` gem, from
 [service-mesh-ruby](https://github.com/Paymentbox-com/service-mesh-ruby), on
