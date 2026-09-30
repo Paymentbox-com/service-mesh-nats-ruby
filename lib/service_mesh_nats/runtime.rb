@@ -9,7 +9,7 @@ module ServiceMeshNats
   # connection and runs their handlers on a bounded thread pool.
   class Runtime
     # A validated Endpoint or Subscriber. queue nil means a plain subscription.
-    Binding = Data.define(:subject, :queue, :target, :handler, :replies)
+    Subscription = Data.define(:subject, :queue, :target, :handler, :replies)
 
     FLUSH_BUDGET = 5.0
 
@@ -19,13 +19,13 @@ module ServiceMeshNats
     # Reads ServiceMesh::DEPLOYMENT_GROUP_KEY and CONCURRENCY_KEY from +config+;
     # connection keys are ignored, the client carries them. Raises
     # ServiceMesh::NoDeploymentGroup, BadConfig, ServiceMesh::KindMismatch, or
-    # ServiceMesh::InvalidTarget. Two bindings on one subject become two
-    # subscriptions. The connection is not touched until start.
+    # ServiceMesh::InvalidTarget. Two endpoints or subscribers on one subject
+    # become two subscriptions. The connection is not touched until start.
     def initialize(client, config, endpoints: [], subscribers: [], logger: Logger.new($stderr))
       @settings = RuntimeSettings.parse(config)
       @client = client
       @logger = logger
-      @bindings = bind_all(endpoints, subscribers)
+      @subscriptions = prepare_all(endpoints, subscribers)
 
       @lock = Mutex.new
       @state = :created
@@ -42,7 +42,7 @@ module ServiceMeshNats
       @client.service_map
     end
 
-    # Subscribes every binding on the client's connection and begins
+    # Subscribes every endpoint and subscriber on the client's connection and begins
     # receiving. Raises AlreadyStarted on a running runtime, Stopped after
     # stop, and Closed when the client has been closed. A failure while
     # subscribing or flushing unsubscribes what was subscribed, leaves the
@@ -57,7 +57,7 @@ module ServiceMeshNats
         pool = Concurrent::FixedThreadPool.new(@settings.concurrency, name: "service_mesh_nats")
         subs = []
         begin
-          @bindings.each do |b|
+          @subscriptions.each do |b|
             opts = b.queue ? {queue: b.queue} : {}
             subs << nc.subscribe(b.subject, opts) { |msg| dispatch(pool, nc, b, msg) }
           end
@@ -111,41 +111,41 @@ module ServiceMeshNats
       @logger.warn("service_mesh_nats: flush during stop failed: #{e.message}")
     end
 
-    def bind_all(endpoints, subscribers)
-      bind = lambda do |target, want, use, metadata, handler, replies|
+    def prepare_all(endpoints, subscribers)
+      prepare = lambda do |target, want, use, metadata, handler, replies|
         Subject.check_kind!(target, want, use)
         subject = Subject.format(target)
         raise ArgumentError, "#{use} #{subject} handler must respond to call" unless handler.respond_to?(:call)
 
-        queue = Subject.consumer_group(metadata, target.metadata, @settings.deployment_group)
-        Binding.new(subject: subject, queue: queue, target: target, handler: handler, replies: replies)
+        queue = Subject.consumer_group(metadata, @settings.deployment_group)
+        Subscription.new(subject: subject, queue: queue, target: target, handler: handler, replies: replies)
       end
 
-      endpoints.map { |e| bind.call(e.target, :route, "Endpoint", e.metadata, e.handler, true) } +
-        subscribers.map { |s| bind.call(s.target, :topic, "Subscriber", s.metadata, s.handler, false) }
+      endpoints.map { |e| prepare.call(e.target, :route, "Endpoint", e.metadata, e.handler, true) } +
+        subscribers.map { |s| prepare.call(s.target, :topic, "Subscriber", s.metadata, s.handler, false) }
     end
 
     # Runs on nats-pure's subscription thread; hands the message to the pool.
-    def dispatch(pool, nc, binding, msg)
-      pool.post { serve(nc, binding, msg) }
+    def dispatch(pool, nc, subscription, msg)
+      pool.post { serve(nc, subscription, msg) }
     rescue Concurrent::RejectedExecutionError
       # The pool is shutting down; the subscription is already gone.
     end
 
-    def serve(nc, binding, msg)
-      inbound = ServiceMesh::Message.new(target: binding.target, metadata: msg.header || {}, payload: msg.data.to_s)
+    def serve(nc, subscription, msg)
+      inbound = ServiceMesh::Message.new(target: subscription.target, metadata: msg.header || {}, payload: msg.data.to_s)
 
-      out = binding.handler.call(inbound)
-      return unless binding.replies && msg.reply
+      out = subscription.handler.call(inbound)
+      return unless subscription.replies && msg.reply
 
       unless out.is_a?(ServiceMesh::Message)
-        raise TypeError, "endpoint #{binding.subject} handler returned #{out.class}, expected ServiceMesh::Message"
+        raise TypeError, "endpoint #{subscription.subject} handler returned #{out.class}, expected ServiceMesh::Message"
       end
 
       reply(nc, msg.reply, out.metadata, out.payload)
     rescue => e
-      @logger.error("service_mesh_nats: handler failed on #{binding.subject}: #{e.class}: #{e.message}")
-      reply(nc, msg.reply, {HANDLER_ERROR_HEADER => e.message}, "") if binding.replies && msg.reply
+      @logger.error("service_mesh_nats: handler failed on #{subscription.subject}: #{e.class}: #{e.message}")
+      reply(nc, msg.reply, {HANDLER_ERROR_HEADER => e.message}, "") if subscription.replies && msg.reply
     end
 
     def reply(nc, subject, metadata, payload)

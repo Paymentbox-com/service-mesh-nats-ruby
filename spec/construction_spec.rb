@@ -42,7 +42,7 @@ RSpec.describe ServiceMeshNats::Runtime, "construction", :nats do
     rt = described_class.new(client, config,
       endpoints: [endpoint(route, metadata: none)],
       subscribers: [subscriber(topic.with(segments: %w[c d]))])
-    bindings = rt.instance_variable_get(:@bindings)
-    expect(bindings.map(&:queue)).to eq([nil, "billing"])
+    subscriptions = rt.instance_variable_get(:@subscriptions)
+    expect(subscriptions.map(&:queue)).to eq([nil, "billing"])
   end
 end

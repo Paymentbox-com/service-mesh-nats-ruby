@@ -36,17 +36,13 @@ RSpec.describe ServiceMeshNats::Subject do
     named = ->(n) { {"consumer_group" => n} }
 
     [
-      ["absent everywhere joins the deployment group", {}, {}, "billing"],
-      ["none on binding gives no group", none, {}, nil],
-      ["name on binding", named["audit"], {}, "audit"],
-      ["name on target", {}, named["audit"], "audit"],
-      ["none on target", {}, none, nil],
-      ["binding wins over target", named["from-binding"], named["from-target"], "from-binding"],
-      ["empty binding value falls through to target", named[""], named["audit"], "audit"],
-      ["empty everywhere falls through to the deployment group", named[""], named[""], "billing"]
-    ].each do |name, binding_md, target_md, want|
+      ["absent joins the deployment group", {}, "billing"],
+      ["none gives no group", none, nil],
+      ["a name is the group", named["audit"], "audit"],
+      ["empty falls through to the deployment group", named[""], "billing"]
+    ].each do |name, metadata, want|
       it name do
-        expect(described_class.consumer_group(binding_md, target_md, "billing")).to eq(want)
+        expect(described_class.consumer_group(metadata, "billing")).to eq(want)
       end
     end
   end

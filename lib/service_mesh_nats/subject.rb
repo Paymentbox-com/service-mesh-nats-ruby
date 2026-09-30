@@ -33,19 +33,15 @@ module ServiceMeshNats
       raise ServiceMesh::KindMismatch, "#{use} requires a #{want} target, got #{target.kind}"
     end
 
-    # The queue group for a binding. Binding metadata wins, then target
-    # metadata, then the deployment group. nil means a plain subscription.
-    def consumer_group(binding_metadata, target_metadata, deployment_group)
-      [binding_metadata, target_metadata].each do |md|
-        next unless md.key?(ServiceMesh::CONSUMER_GROUP_KEY)
+    # The queue group of an Endpoint or Subscriber, from its metadata, falling
+    # back to the runtime's deployment group. nil means a plain subscription.
+    # A Target carries no consumer group, so its metadata is not read.
+    def consumer_group(metadata, deployment_group)
+      value = metadata[ServiceMesh::CONSUMER_GROUP_KEY].to_s
+      return deployment_group if value.empty?
+      return nil if value == ServiceMesh::CONSUMER_GROUP_NONE
 
-        value = md[ServiceMesh::CONSUMER_GROUP_KEY].to_s
-        next if value.empty?
-        return nil if value == ServiceMesh::CONSUMER_GROUP_NONE
-
-        return value
-      end
-      deployment_group
+      value
     end
   end
 end
