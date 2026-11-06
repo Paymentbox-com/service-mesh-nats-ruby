@@ -80,7 +80,7 @@ audit   = serve.call("audit", [sub])
 # With no consumer group, every instance of a deployment handles every event.
 broadcast = ServiceMesh::Subscriber.new(
   target: created,
-  metadata: {ServiceMesh::CONSUMER_GROUP_KEY => ServiceMesh::CONSUMER_GROUP_NONE},
+  consumer_group: ServiceMesh::CONSUMER_GROUP_NONE,
   handler: on_created
 )
 cache = serve.call("cache", [broadcast])

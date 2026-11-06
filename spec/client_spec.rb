@@ -11,8 +11,7 @@ RSpec.describe ServiceMeshNats::Client do
   end
 
   describe "against a server", :nats do
-    let(:url) { nats_server_url }
-    let(:config) { {"url" => url} }
+    let(:config) { nats_config }
     let(:runtime_config) { config.merge("deployment_group" => "test") }
     let(:quiet) { Logger.new(File::NULL) }
     let(:client) { described_class.new(config, map) }
@@ -20,20 +19,27 @@ RSpec.describe ServiceMeshNats::Client do
     after { client.close }
 
     def serve(endpoints)
-      rt = ServiceMeshNats::Runtime.new(described_class.new(config, map), runtime_config, endpoints: endpoints, logger: quiet)
-      rt.start
-      @runtimes = (@runtimes || []) << rt
-      rt
+      runtime = ServiceMeshNats::Runtime.new(described_class.new(config, map), runtime_config, endpoints: endpoints, logger: quiet)
+      runtime.start
+      @runtimes = (@runtimes || []) << runtime
+      runtime
     end
 
-    after { (@runtimes || []).each { |rt| rt.stop(3) } }
+    after { (@runtimes || []).each { |runtime| runtime.stop(3) } }
 
     it "keeps the service map" do
-      sm = ServiceMesh::ServiceMap.new(targets: [echo])
-      standalone = described_class.new(config, sm)
-      expect(standalone.service_map).to equal(sm)
+      service_map = ServiceMesh::ServiceMap.new(targets: [echo])
+      standalone = described_class.new(config, service_map)
+      expect(standalone.service_map).to equal(service_map)
     ensure
       standalone&.close
+    end
+
+    it "gives the connection its name" do
+      named = described_class.new(config.merge("name" => "billing-api"), map)
+      expect(named.connection.options[:name]).to eq("billing-api")
+    ensure
+      named&.close
     end
 
     it "ignores the deployment group" do
@@ -55,6 +61,17 @@ RSpec.describe ServiceMeshNats::Client do
     it "rejects a bad per-call timeout" do
       expect { client.request(ServiceMesh::Message.new(target: echo), "request_timeout" => "later") }
         .to raise_error(ServiceMeshNats::BadConfig)
+    end
+
+    it "rejects a request whose target sets stream" do
+      streamed = echo.with(metadata: {"stream" => "S"})
+      expect { client.request(ServiceMesh::Message.new(target: streamed)) }
+        .to raise_error(ServiceMeshNats::BadConfig, /stream/)
+    end
+
+    it "rejects a request whose options set stream" do
+      expect { client.request(ServiceMesh::Message.new(target: echo), "stream" => "S") }
+        .to raise_error(ServiceMeshNats::BadConfig, /stream/)
     end
 
     it "raises Closed on request after close" do
@@ -84,13 +101,13 @@ RSpec.describe ServiceMeshNats::Client do
     it "turns a raising handler into HandlerError" do
       serve([ServiceMesh::Endpoint.new(target: echo, handler: ->(_) { raise "boom" })])
       expect { client.request(ServiceMesh::Message.new(target: echo)) }
-        .to raise_error(ServiceMeshNats::HandlerError) { |e| expect(e.text).to eq("boom") }
+        .to raise_error(ServiceMeshNats::HandlerError) { |error| expect(error.text).to eq("boom") }
     end
 
     it "times out with the transport's timeout, configured and per call" do
-      serve([ServiceMesh::Endpoint.new(target: echo, handler: lambda { |m|
+      serve([ServiceMesh::Endpoint.new(target: echo, handler: lambda { |message|
         sleep 3
-        m
+        message
       })])
       slow_client = described_class.new(config.merge("request_timeout" => "0.1"), map)
 
@@ -101,6 +118,30 @@ RSpec.describe ServiceMeshNats::Client do
       expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be >= 0.25
     ensure
       slow_client&.close
+    end
+
+    it "bounds a request by the target's request_timeout when the call sets none" do
+      serve([ServiceMesh::Endpoint.new(target: echo, handler: lambda { |message|
+        sleep 3
+        message
+      })])
+      quick = echo.with(metadata: {"request_timeout" => "0.1"})
+
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      expect { client.request(ServiceMesh::Message.new(target: quick)) }.to raise_error(NATS::Timeout)
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 1
+    end
+
+    it "takes a per-call request_timeout over the target's" do
+      serve([ServiceMesh::Endpoint.new(target: echo, handler: lambda { |message|
+        sleep 3
+        message
+      })])
+      quick = echo.with(metadata: {"request_timeout" => "0.1"})
+
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      expect { client.request(ServiceMesh::Message.new(target: quick), "request_timeout" => "0.5") }.to raise_error(NATS::Timeout)
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be >= 0.45
     end
   end
 end

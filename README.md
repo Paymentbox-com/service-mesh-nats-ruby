@@ -9,6 +9,7 @@ top of the `nats-pure` client.
 The `ServiceMeshNats` module provides:
 * `Client`, which implements the contract's `Client` over one NATS connection
 * `Runtime`, which implements the contract's `Runtime` on a `Client`'s connection
+* `Receiver`, which inspects an endpoint or subscriber the runtime is running
 * the configuration keys it reads
 * the errors it defines
 
@@ -69,5 +70,6 @@ builds a client itself and calls `close` when done. `runtime.service_map` and
 
 - [Examples](docs/examples.md): a server process, a call-only client process, and consumer groups
 - [Public API](docs/public-api.md): every public constant and method in `ServiceMeshNats`
-- [Transport Specific Implementation](docs/transport-specific-implementation.md): subjects, configuration, metadata, delivery, handler failure, timeouts, concurrency, lifecycle, and errors
+- [Transport Specific Implementation](docs/transport-specific-implementation.md): subjects, configuration, settings, metadata, delivery, handler failure, timeouts, concurrency, lifecycle, logging, and errors
+- [JetStream](docs/jetstream.md): publishing to streams, consuming through consumers, their options, and inspecting streams and consumers
 - [Development](docs/development.md): the recipes and the tests

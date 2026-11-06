@@ -2,18 +2,18 @@
 
 RSpec.describe ServiceMeshNats::ClientSettings do
   it "applies defaults" do
-    s = described_class.parse({})
-    expect(s.url).to eq("nats://127.0.0.1:4222")
-    expect(s.name).to be_nil
-    expect(s.connect_timeout).to eq(5.0)
-    expect(s.request_timeout).to eq(30.0)
-    expect(s.connect_options).to eq(servers: ["nats://127.0.0.1:4222"], connect_timeout: 5.0)
+    settings = described_class.parse({})
+    expect(settings.url).to eq("nats://127.0.0.1:4222")
+    expect(settings.name).to be_nil
+    expect(settings.connect_timeout).to eq(5.0)
+    expect(settings.request_timeout).to eq(30.0)
+    expect(settings.connect_options).to eq(servers: ["nats://127.0.0.1:4222"], connect_timeout: 5.0)
   end
 
   it "parses every key" do
-    s = described_class.parse("url" => "nats://x:1", "name" => "n", "connect_timeout" => "1", "request_timeout" => "0.25")
-    expect([s.url, s.name, s.connect_timeout, s.request_timeout]).to eq(["nats://x:1", "n", 1.0, 0.25])
-    expect(s.connect_options).to eq(servers: ["nats://x:1"], connect_timeout: 1.0, name: "n")
+    settings = described_class.parse("url" => "nats://x:1", "name" => "n", "connect_timeout" => "1", "request_timeout" => "0.25")
+    expect([settings.url, settings.name, settings.connect_timeout, settings.request_timeout]).to eq(["nats://x:1", "n", 1.0, 0.25])
+    expect(settings.connect_options).to eq(servers: ["nats://x:1"], connect_timeout: 1.0, name: "n")
   end
 
   it "treats an empty url as absent" do
@@ -35,9 +35,9 @@ end
 
 RSpec.describe ServiceMeshNats::RuntimeSettings do
   it "applies defaults" do
-    s = described_class.parse("deployment_group" => "d")
-    expect(s.deployment_group).to eq("d")
-    expect(s.concurrency).to be > 0
+    settings = described_class.parse("deployment_group" => "d")
+    expect(settings.deployment_group).to eq("d")
+    expect(settings.concurrency).to eq(Etc.nprocessors)
   end
 
   it "parses concurrency" do
@@ -53,8 +53,8 @@ RSpec.describe ServiceMeshNats::RuntimeSettings do
   end
 
   it "ignores connection keys" do
-    s = described_class.parse("deployment_group" => "d", "url" => "nats://x:1", "connect_timeout" => "later")
-    expect(s.deployment_group).to eq("d")
+    settings = described_class.parse("deployment_group" => "d", "url" => "nats://x:1", "connect_timeout" => "later")
+    expect(settings.deployment_group).to eq("d")
   end
 
   it "rejects non-numeric concurrency" do

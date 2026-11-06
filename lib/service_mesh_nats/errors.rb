@@ -19,6 +19,19 @@ module ServiceMeshNats
     def initialize(msg = "runtime has been stopped; it is not restartable") = super
   end
 
+  # Raised by Runtime#start when a JetStream stream covers one of the
+  # runtime's endpoint subjects, because the stream would answer requests to
+  # it. +subject+ is the endpoint subject, and +stream+ the stream's name.
+  class StreamCoversRoute < Error
+    attr_reader :subject, :stream
+
+    def initialize(subject, stream)
+      @subject = subject
+      @stream = stream
+      super("a stream covers an endpoint subject: subject #{subject.inspect}, stream #{stream.inspect}")
+    end
+  end
+
   # Raised by Client#request when the serving handler raised. +text+ is the
   # handler's error message as sent by the serving runtime.
   class HandlerError < Error
@@ -29,8 +42,4 @@ module ServiceMeshNats
       super("handler failed: #{text}")
     end
   end
-
-  # Reply header set when an endpoint handler fails. Application metadata
-  # should not use this key.
-  HANDLER_ERROR_HEADER = "Mesh-Handler-Error"
 end

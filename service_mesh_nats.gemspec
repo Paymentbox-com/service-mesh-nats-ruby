@@ -19,6 +19,6 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*.rb"] + %w[README.md LICENSE]
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "nats-pure", "~> 2.5"
-  spec.add_dependency "service_mesh", "~> 0.5", "< 0.7"
+  spec.add_dependency "nats-pure", "~> 2.7"
+  spec.add_dependency "service_mesh", "~> 0.7"
 end
